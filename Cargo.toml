@@ -1,0 +1,24 @@
+[package]
+name = "rust-joinstr"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+home = "=0.5.9"
+bitcoin = "=0.32.2"
+bip39 = { version = "2.0.0", features = ["rand"] }
+hex-conservative = "0.2.1"
+miniscript = {version = "12.2.0", features = ["base64", "serde"]}
+simple_electrum_client = { git = "https://github.com/pythcoiner/simple_electrum_client.git", branch = "master"}
+nostr-sdk = "0.35.0"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+tokio = "1.40.0"
+log = "0.4.22"
+env_logger = "=0.10.2"
+rand = "0.8.5"
+
+[dev-dependencies]
+electrsd = { git = "https://github.com/pythcoiner/electrsd.git", branch = "buffered_logs"}
+nostrd = { git = "https://github.com/pythcoiner/nostrd.git", branch = "master" }
+
