@@ -16,3 +16,8 @@ and the python & kotlin implementations, but we should fix it soon.
 # Transaction Inputs/Outputs types
 
 As of now, we have only implemented the protocol for using **Segwitv0** inputs & outputs.
+
+# VPN/Tor
+
+For now there is no plan to implement VPN or Tor support in this lib, as it's expected 
+to be handled at consumer or OS level.
