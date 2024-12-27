@@ -1,7 +1,7 @@
-use crate::{
-    electrum::{self, Client},
-    nostr::InputDataSigned,
-};
+mod error;
+pub use error::Error;
+
+use crate::{electrum::Client, nostr::InputDataSigned};
 use bip39::Mnemonic;
 use miniscript::{
     bitcoin::{
@@ -15,58 +15,9 @@ use miniscript::{
     descriptor::{DerivPaths, DescriptorMultiXKey, Wildcard},
     Descriptor, DescriptorPublicKey,
 };
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    str::FromStr,
-};
+use std::{collections::HashMap, fmt::Debug, str::FromStr};
 
 const MAX_DERIV: u32 = 2u32.pow(31) - 1;
-
-#[derive(Debug)]
-pub enum Error {
-    TxAlreadyHasInput,
-    SighashFail,
-    InvalidSignature,
-    InvalidTransaction,
-    NoElectrumClient,
-    CoinPathWithoutIndex,
-    CoinPath,
-    XPrivFromSeed,
-    Derivation,
-    Bip39(bip39::Error),
-    Electrum(electrum::Error),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::TxAlreadyHasInput => write!(f, "PSBT should only have outputs at this step"),
-            Error::SighashFail => write!(f, "Sighash id not SIGHASH_ALL | SIGHASH_ANYONE_CAN_PAY"),
-            Error::InvalidSignature => write!(f, "Signature processed is invalid"),
-            Error::InvalidTransaction => write!(f, "Fail to create PSBT from unsigned transaction"),
-            Error::NoElectrumClient => write!(f, "There is no electrum client provided"),
-            Error::CoinPathWithoutIndex => write!(f, "Invalid CoinPath provided: index is missing"),
-            Error::CoinPath => write!(f, "Wrong CoinPath"),
-            Error::Electrum(e) => write!(f, "{}", e),
-            Error::Bip39(e) => write!(f, "{}", e),
-            Error::XPrivFromSeed => write!(f, "Fail to generate XPriv from seed"),
-            Error::Derivation => write!(f, "Derivation fails"),
-        }
-    }
-}
-
-impl From<electrum::Error> for Error {
-    fn from(value: electrum::Error) -> Self {
-        Error::Electrum(value)
-    }
-}
-
-impl From<bip39::Error> for Error {
-    fn from(value: bip39::Error) -> Self {
-        Error::Bip39(value)
-    }
-}
 
 pub trait JoinstrSigner {
     fn sign_input(&self, tx: &Transaction, input_data: Coin) -> Result<InputDataSigned, String>;
