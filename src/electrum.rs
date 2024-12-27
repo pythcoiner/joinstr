@@ -59,24 +59,39 @@ impl Clone for Client {
 }
 
 impl Client {
-    pub fn new(url: &str, port: u16) -> Result<Self, Error> {
-        let mut inner = RawClient::new_tcp(url, port);
+    /// Create a new electrum client.
+    ///
+    /// # Arguments
+    /// * `address` - url/ip of the electrum server as String
+    /// * `port` - port of the electrum server
+    pub fn new(address: &str, port: u16) -> Result<Self, Error> {
+        let mut inner = RawClient::new_tcp(address, port);
         inner.try_connect()?;
         Ok(Client {
             inner,
             index: HashMap::new(),
             last_id: 0,
-            url: url.into(),
+            url: address.into(),
             port,
         })
     }
 
+    /// Generate a new request id
     fn id(&mut self) -> usize {
         let id = self.last_id;
         self.last_id = self.last_id.wrapping_add(1);
         id
     }
 
+    /// Try to get a transaction by its txid
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - fail to send the request
+    ///   - parsing response fails
+    ///   - the response is not of expected type
+    ///   - the transaction does not exists
     pub fn get_tx(&mut self, txid: Txid) -> Result<Transaction, Error> {
         let request = Request::tx_get(txid).id(self.id());
         self.inner.try_send(&request)?;
@@ -122,6 +137,18 @@ impl Client {
         Err(Error::WrongResponse)
     }
 
+    /// Get coins that pay to the given spk and their related transaction.
+    /// This method will make several calls to the electrum server:
+    ///   - it will first request a list of all transactions txid that have
+    ///     an output paying to the spk.
+    ///   - it will then fetch all txs, store them and extract all the coins
+    ///     that pay to the given spk.
+    ///   - it will return a list of (TxOut, OutPoint) and a map of transactions.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - a call to the electrum server fail
     #[allow(clippy::type_complexity)]
     pub fn get_coins_at(
         &mut self,
@@ -146,6 +173,14 @@ impl Client {
         Ok((txouts, transactions))
     }
 
+    /// Get a list of txid of all transaction that have an output paying to the
+    ///   given spk
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - fail sending the request
+    ///   - receive a wrong response
     pub fn get_coins_tx_at(&mut self, script: &Script) -> Result<Vec<Txid>, Error> {
         let request = Request::sh_get_history(script).id(self.id());
         self.inner.try_send(&request)?;
@@ -171,6 +206,13 @@ impl Client {
         Err(Error::WrongResponse)
     }
 
+    /// Broadcast the given transaction.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - fail to send the request
+    ///   - get a wrong response
     pub fn broadcast(&mut self, tx: &Transaction) -> Result<(), Error> {
         let raw_tx = serialize_hex(tx);
         log::debug!("electrum::Client().broadcast(): {:?}", raw_tx);
