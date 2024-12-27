@@ -1,3 +1,4 @@
+use bitcoin::{Address, Amount};
 use hex_conservative::FromHex;
 use miniscript::bitcoin::{consensus::Decodable, OutPoint, Script, Transaction, TxOut, Txid};
 use nostr_sdk::bitcoin::consensus::encode::serialize_hex;
@@ -12,6 +13,8 @@ use simple_electrum_client::{
     raw_client::{self, Client as RawClient},
 };
 use std::{collections::HashMap, fmt::Display, thread::sleep, time::Duration};
+
+use crate::coinjoin::BitcoinBackend;
 
 #[derive(Debug)]
 pub enum Error {
@@ -197,5 +200,34 @@ impl Client {
         }
         self.index.remove(&req_id);
         Err(Error::WrongResponse)
+    }
+}
+
+impl BitcoinBackend for Client {
+    type Error = Error;
+    fn address_already_used(&mut self, addr: &Address) -> Result<bool, Error> {
+        let spk = addr.script_pubkey();
+        let txs = self.get_coins_tx_at(&spk)?;
+        Ok(!txs.is_empty())
+    }
+
+    fn get_outpoint_value(&mut self, outpoint: OutPoint) -> Result<Option<Amount>, Error> {
+        let tx = match self.get_tx(outpoint.txid) {
+            Ok(tx) => tx,
+            Err(e) => match e {
+                // NOTE: it's very likely if we receive an error response from the server
+                // it's because the txid does not match any Transaction, but maybe we can
+                // do a better handling of the error case (for this we need check if responses
+                // from all electrum server implementations are consistant).
+                Error::TxDoesNotExists => return Ok(None),
+                e => return Err(e),
+            },
+        };
+        Ok(Some(
+            tx.output
+                .get(outpoint.vout as usize)
+                .ok_or(Error::WrongOutPoint)?
+                .value,
+        ))
     }
 }

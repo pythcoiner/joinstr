@@ -5,7 +5,7 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use crate::{electrum, nostr::InputDataSigned};
+use crate::nostr::InputDataSigned;
 use miniscript::bitcoin::{
     absolute, transaction::Version, Address, Amount, OutPoint, Psbt, Transaction, TxOut,
 };
@@ -16,38 +16,6 @@ pub trait BitcoinBackend {
     type Error: Into<Error>;
     fn address_already_used(&mut self, addr: &Address) -> Result<bool, Self::Error>;
     fn get_outpoint_value(&mut self, outpoint: OutPoint) -> Result<Option<Amount>, Self::Error>;
-}
-
-impl BitcoinBackend for electrum::Client {
-    type Error = electrum::Error;
-    fn address_already_used(&mut self, addr: &Address) -> Result<bool, electrum::Error> {
-        let spk = addr.script_pubkey();
-        let txs = self.get_coins_tx_at(&spk)?;
-        Ok(!txs.is_empty())
-    }
-
-    fn get_outpoint_value(
-        &mut self,
-        outpoint: OutPoint,
-    ) -> Result<Option<Amount>, electrum::Error> {
-        let tx = match self.get_tx(outpoint.txid) {
-            Ok(tx) => tx,
-            Err(e) => match e {
-                // NOTE: it's very likely if we receive an error response from the server
-                // it's because the txid does not match any Transaction, but maybe we can
-                // do a better handling of the error case (for this we need check if responses
-                // from all electrum server implementations are consistant).
-                electrum::Error::TxDoesNotExists => return Ok(None),
-                e => return Err(e),
-            },
-        };
-        Ok(Some(
-            tx.output
-                .get(outpoint.vout as usize)
-                .ok_or(electrum::Error::WrongOutPoint)?
-                .value,
-        ))
-    }
 }
 
 #[derive(Debug)]
@@ -383,7 +351,6 @@ where
     pub fn tx(&self) -> Option<Transaction> {
         self.tx.clone()
     }
-
 }
 
 #[cfg(test)]
