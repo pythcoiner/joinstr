@@ -68,6 +68,11 @@ pub fn descriptor(
 }
 
 impl WpkhHotSigner {
+    /// Create a new [`WpkhHotSigner`] instance from the Xpriv key.
+    ///
+    /// # Arguments
+    /// * `network` - The bitcoin network (bitcoin/testnet/signet/regtest)
+    /// * `xpriv` - The private key the signer will use
     pub fn new_from_xpriv(network: Network, xpriv: Xpriv) -> Self {
         let secp = secp256k1::Secp256k1::new();
         let fingerprint = xpriv.fingerprint(&secp);
@@ -99,7 +104,25 @@ impl WpkhHotSigner {
         }
     }
 
-    /// Should be used for tests only
+    /// Create a new [`WpkhHotSigner`] instance from a mnemonic phrase.
+    /// The mnemonic is stored in [`WpkhHotSigner::mnemonic`] field.
+    ///
+    /// # Arguments
+    /// * `network` - The bitcoin network (bitcoin/testnet/signet/regtest)
+    /// * `xpriv` - The private key the signer will use
+    pub fn new_from_mnemonics(network: Network, mnemonic: &str) -> Result<Self, Error> {
+        let mnemonic = Mnemonic::from_str(mnemonic)?;
+        let seed = mnemonic.to_seed("");
+        let key = bip32::Xpriv::new_master(network, &seed).map_err(|_| Error::XPrivFromSeed)?;
+        Ok(Self::new_from_xpriv(network, key))
+    }
+
+    /// Generate a new signer and it's private key.
+    /// The mnemonic is stored in [`WpkhHotSigner::mnemonic`] field.
+    ///
+    /// Note: generating a private key by this way is not safe enough
+    ///   to use on mainnet, so we decide to forbid usage of this method on mainnet.
+    ///   This method will panic if `network` have [`Network::Bitcoin`] value.
     pub fn new(network: Network) -> Result<Self, Error> {
         // Should not be used on mainnet
         assert_ne!(network, Network::Bitcoin);
@@ -109,28 +132,33 @@ impl WpkhHotSigner {
         Ok(signer)
     }
 
+    /// Set the electrum client to be used by the signer.
+    /// Note: the signer need a bitcoin backend client in coinjoin context
+    ///   in order to verify amounts of the inputs of a transaction.
     pub fn client(mut self, client: Client) -> Self {
         self.set_client(client);
         self
     }
 
+    /// Set the electrum client to be used by the signer.
+    /// Note: the signer need a bitcoin backend client in coinjoin context
+    ///   in order to verify amounts of the inputs of a transaction.
     pub fn set_client(&mut self, client: Client) {
         if self.client.is_none() {
             self.client = Some(client);
         }
     }
 
+    /// Remove the inner electrum client.
     pub fn drop_client(&mut self) {
         self.client = None;
     }
 
-    pub fn new_from_mnemonics(network: Network, mnemonic: &str) -> Result<Self, Error> {
-        let mnemonic = Mnemonic::from_str(mnemonic)?;
-        let seed = mnemonic.to_seed("");
-        let key = bip32::Xpriv::new_master(network, &seed).map_err(|_| Error::XPrivFromSeed)?;
-        Ok(Self::new_from_xpriv(network, key))
-    }
-
+    /// Process the address for the given CoinPath.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the [`CoinPath::index`] is None
     pub fn address_at(&self, coin_path: &CoinPath) -> Result<Address, Error> {
         if let Some(index) = coin_path.index {
             let fingerprint = self.master_xpriv.fingerprint(self.secp());
@@ -143,10 +171,26 @@ impl WpkhHotSigner {
         }
     }
 
+    /// Process the spk for the given CoinPath.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the [`CoinPath::index`] is None
     pub fn spk_at(&self, coin_path: &CoinPath) -> Result<ScriptBuf, Error> {
         Ok(self.address_at(coin_path)?.script_pubkey())
     }
 
+    /// Use the inner electrum client to get coins that have been paid
+    ///   to the given [`CoinPath`]. coins are automatically added to
+    ///   [`WpkhHotSigner::coins`] and the functions return the number
+    ///   of coins added.
+    /// Note: this method is used to avoid address reuse.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - an electrum request fails.
+    ///   - there is not electrum client
     pub fn get_coins_at(&mut self, coin_path: CoinPath) -> Result<usize, Error> {
         let spk = self.spk_at(&coin_path)?;
         if let Some(client) = self.client.as_mut() {
@@ -175,6 +219,10 @@ impl WpkhHotSigner {
         }
     }
 
+    /// Returns a list of coins copied from [`WpkhHotSigner::coins`]
+    ///
+    /// Note: [`WpkhHotSigner::get_coins_at()`] should be call before in order to
+    ///   fill [`WpkhHotSigner::coins`].
     pub fn list_coins(&self) -> Vec<(CoinPath, Coin)> {
         let mut out = Vec::new();
         let keys: Vec<_> = self.coins.keys().cloned().collect();
@@ -190,6 +238,23 @@ impl WpkhHotSigner {
         out
     }
 
+
+    /// Sign the transaction w/ the given [`Coin`] as input. Returns the signed input
+    ///   only as a [`InputDataSigned`].
+    ///
+    /// # Arguments
+    /// * `tx` - the [`Transaction`] to be signed. Note: the transaction should not have any
+    ///   inputs.
+    /// * `input_data` - the [`Coin`] to be added as input.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - a PSBT fail to be generated from the transaction
+    ///   - the PSBT [`Psbt::inputs`] is not empty
+    ///   - fail to process the spk for the given input
+    ///   - fail to hash the transaction
+    ///   - the signature generated is invalid
     pub fn sign(&self, tx: &Transaction, input_data: Coin) -> Result<InputDataSigned, Error> {
         let mut psbt = match Psbt::from_unsigned_tx(tx.clone()) {
             Ok(psbt) => psbt,
@@ -267,6 +332,7 @@ impl WpkhHotSigner {
         // check the keys matching utxo script_pubkey
         let comp = CompressedPublicKey(pubkey);
         let expected_spk = Address::p2wpkh(&comp, self.network).script_pubkey();
+        // FIXME: we should error instead of panic here
         assert_eq!(expected_spk, input_data.txout.script_pubkey);
 
         let signature = self.secp.sign_ecdsa_low_r(&msg, &signing_key);
@@ -287,29 +353,52 @@ impl WpkhHotSigner {
         })
     }
 
+    /// Returns the [`Fingerprint`] of this [`WpkhHotSigner`].
     fn fingerprint(&self) -> Fingerprint {
         self.fingerprint
     }
 
+    /// Return the secp context of this signer
     fn secp(&self) -> &secp256k1::Secp256k1<All> {
         &self.secp
     }
 
+    /// Returns the derived [`Xpriv`].
+    ///
+    /// # Arguments
+    /// * `path` - the [`DerivationPath`] to be used to derive the [`Xpriv`]
+    ///   from the master [`Xpriv`]
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the derivation fails.
     fn xpriv_at(&self, path: DerivationPath) -> Result<Xpriv, Error> {
         self.master_xpriv
             .derive_priv(self.secp(), &path)
             .map_err(|_| Error::Derivation)
     }
 
+    /// Returns the derived [`Xpub`].
+    ///
+    /// # Arguments
+    /// * `path` - the [`DerivationPath`] to be used to derive the [`Xpub`]
+    ///   from the master [`Xpub`]
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the derivation fails.
     fn xpub_at(&self, path: DerivationPath) -> Result<Xpub, Error> {
         let xpriv = self.xpriv_at(path)?;
         Ok(Xpub::from_priv(self.secp(), &xpriv))
     }
 
+    /// Returns a copy of the mnemonic if not None
     fn mnemonic(&self) -> Option<Mnemonic> {
         self.mnemonic.clone()
     }
 
+    /// Returns the receive address at the given `index`. Returns None
+    ///   if the derivation fails.
     pub fn recv_addr_at(&self, index: u32) -> Option<Address> {
         self.address_at(&CoinPath {
             depth: 0,
@@ -318,6 +407,8 @@ impl WpkhHotSigner {
         .ok()
     }
 
+    /// Returns the change address at the given `index`. Returns None
+    ///   if the derivation fails.
     pub fn change_addr_at(&self, index: u32) -> Option<Address> {
         self.address_at(&CoinPath {
             depth: 1,
