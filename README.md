@@ -21,3 +21,18 @@ As of now, we have only implemented the protocol for using **Segwitv0** inputs &
 
 For now there is no plan to implement VPN or Tor support in this lib, as it's expected 
 to be handled at consumer or OS level.
+
+# Build
+
+Install Rust toolchain ([see here](https://www.rust-lang.org/tools/install))
+
+and run this from this repo:
+
+```shell
+cargo run --release
+```
+
+# Run the tests
+```shell
+cargo tests
+```
