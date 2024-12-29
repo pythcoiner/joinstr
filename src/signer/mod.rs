@@ -238,7 +238,6 @@ impl WpkhHotSigner {
         out
     }
 
-
     /// Sign the transaction w/ the given [`Coin`] as input. Returns the signed input
     ///   only as a [`InputDataSigned`].
     ///
@@ -265,18 +264,6 @@ impl WpkhHotSigner {
         if !psbt.inputs.is_empty() {
             return Err(Error::TxAlreadyHasInput);
         }
-
-        // TODO: we should add a new rule in order to 'map' an input derivation path to the funded
-        // output derivation path: multipath of the output should always be the multipath of the
-        // input +2. For instance, if a non conjoined input have a derivation path of
-        // m/84'/0'/0'/<0;1>/12 the output path should be m/84'/0'/0'/<2;3>/12, then if this utxo
-        // fund a new coinjoin, it's linked output should have a derivation path of
-        // m/84'/0'/0'/<4;5>/12, etc...
-        // It makes it easy for the signer to verifying one output belong to self w/o trusting an
-        // external information, and make impossible some atack where the attacker can make the
-        // signer sign 2 input for a single matching output.
-        // One drawback to this is that if an output address is broadcasted in a pool and the pool
-        // isn't finalized, used cannot replaced the output address in the next pool...
 
         let spk = self
             .spk_at(&input_data.coin_path)
