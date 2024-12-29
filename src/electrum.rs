@@ -65,7 +65,27 @@ impl Client {
     /// * `address` - url/ip of the electrum server as String
     /// * `port` - port of the electrum server
     pub fn new(address: &str, port: u16) -> Result<Self, Error> {
-        let mut inner = RawClient::new_tcp(address, port);
+        let ssl = address.starts_with("ssl://");
+        let mut inner = RawClient::new_ssl_maybe(address, port, ssl);
+        inner.try_connect()?;
+        Ok(Client {
+            inner,
+            index: HashMap::new(),
+            last_id: 0,
+            url: address.into(),
+            port,
+        })
+    }
+
+    /// Create a new local electrum client: SSL certificate validation id disabled in
+    ///   order to be used with self-signed certificates.
+    ///
+    /// # Arguments
+    /// * `address` - url/ip of the electrum server as String
+    /// * `port` - port of the electrum server
+    pub fn new_local(address: &str, port: u16) -> Result<Self, Error> {
+        let ssl = address.starts_with("ssl://");
+        let mut inner = RawClient::new_ssl_maybe(address, port, ssl).verif_certificate(false);
         inner.try_connect()?;
         Ok(Client {
             inner,
