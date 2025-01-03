@@ -39,6 +39,8 @@ pub enum Error {
     RelaysMissing,
     FeeMissing,
     TimelineDuration,
+    AlreadyHaveInput,
+    AlreadyHaveOutput,
 }
 
 impl From<crate::coinjoin::Error> for Error {

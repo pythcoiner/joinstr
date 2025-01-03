@@ -946,6 +946,40 @@ impl<'a> Joinstr<'a> {
         Ok(())
     }
 
+    /// Set the coin to coinjoin
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the coin is already set
+    pub fn set_coin(&mut self, coin: Coin) -> Result<(), Error> {
+        if self.input.is_none() {
+            self.input = Some(coin);
+            Ok(())
+        } else {
+            Err(Error::AlreadyHaveInput)
+        }
+    }
+
+    /// Set the address the coin must be sent to
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the address is already set
+    /// or if address is for wrong network
+    pub fn set_address(&mut self, addr: Address<NetworkUnchecked>) -> Result<(), Error> {
+        let addr = if addr.is_valid_for_network(self.network) {
+            addr.assume_checked()
+        } else {
+            return Err(Error::WrongAddressNetwork);
+        };
+        if self.output.is_none() {
+            self.output = Some(addr);
+            Ok(())
+        } else {
+            Err(Error::AlreadyHaveOutput)
+        }
+    }
+
     /// Strart a coinjoin process, followings steps will be processed:
     ///   - if no `pool` arg is passed, a new pool will be initiated.
     ///   - if a `pool` arg is passed, it will join the pool
