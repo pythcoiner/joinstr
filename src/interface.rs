@@ -152,7 +152,7 @@ pub fn initiate_coinjoin(config: PoolConfig, peer: PeerConfig) -> Result<String 
 ///
 /// # Arguments
 /// * `back` - how many second back look in the past
-/// * `timeout` - how many microseconds we will wait before fetching relay notifications
+/// * `timeout` - how many milliseconds we will wait before fetching relay notifications
 /// * `relay` - the relay url, must start w/ `wss://` or `ws://`
 ///
 /// # Returns a [`Vec`]  of [`String`] containing a json serialization of a [`Pool`]
