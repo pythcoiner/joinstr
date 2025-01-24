@@ -45,7 +45,7 @@ pub struct Joinstr<'a> {
     final_tx: Option<miniscript::bitcoin::Transaction>,
 }
 
-impl<'a> Default for Joinstr<'a> {
+impl Default for Joinstr<'_> {
     fn default() -> Self {
         Self {
             initiator: false,
