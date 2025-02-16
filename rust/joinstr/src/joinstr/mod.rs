@@ -24,6 +24,9 @@ use crate::{
     utils::{now, rand_delay},
 };
 
+use std::net::IpAddr;
+use url::Url;
+
 // delay we wait between (non-blocking) polls of a channel
 pub const WAIT: u64 = 50;
 
@@ -296,8 +299,26 @@ impl<'a> Joinstr<'a> {
     /// Add a relay address to [`Joinstr::relays`]
     pub fn relay<T: Into<String>>(mut self, url: T) -> Result<Self, Error> {
         self.pool_not_exists()?;
-        // TODO: check the address is valid
+
         let url: String = url.into();
+
+        // Validate if it's a valid "ws" or "wss" URL
+        if let Ok(parsed_url) = Url::parse(&url) {
+            if parsed_url.scheme() != "wss" && parsed_url.scheme() != "ws" {
+                return Err(Error::InvalidRelayAddress);
+            }
+
+            if let Some(host) = parsed_url.host_str() {
+                if host.parse::<IpAddr>().is_err() && !host.contains('.') {
+                    return Err(Error::InvalidRelayAddress);
+                }
+            } else {
+                return Err(Error::InvalidRelayAddress);
+            }
+        } else {
+            return Err(Error::InvalidRelayAddress);
+        }
+
         self.relays.push(url);
         Ok(self)
     }
