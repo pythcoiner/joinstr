@@ -7,8 +7,8 @@ use electrsd::{
     },
     ElectrsD,
 };
+use joinstr::{electrum::Client, signer::WpkhHotSigner};
 use miniscript::bitcoin::{Address, Amount, Network};
-use rust_joinstr::{electrum::Client, signer::WpkhHotSigner};
 
 pub fn bootstrap_electrs() -> (
     String, /* url */

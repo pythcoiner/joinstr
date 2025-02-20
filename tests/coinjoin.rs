@@ -2,8 +2,8 @@ pub mod utils;
 use crate::utils::{funded_wallet, generate};
 
 use electrsd::bitcoind::bitcoincore_rpc::RpcApi;
+use joinstr::{coinjoin::CoinJoin, electrum::Client, signer::CoinPath};
 use miniscript::bitcoin::Amount;
-use rust_joinstr::{coinjoin::CoinJoin, electrum::Client, signer::CoinPath};
 
 #[test]
 fn simple_tx() {

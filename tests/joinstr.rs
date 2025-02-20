@@ -3,16 +3,16 @@ use std::{sync::Once, time::Duration};
 
 use crate::utils::{bootstrap_electrs, funded_wallet_with_bitcoind};
 use electrsd::bitcoind::bitcoincore_rpc::RpcApi;
-use miniscript::bitcoin::Network;
-use rust_joinstr::{
+use joinstr::{
     electrum::Client,
     signer::{CoinPath, WpkhHotSigner},
     utils::now,
 };
+use miniscript::bitcoin::Network;
 
+use joinstr::{joinstr::Joinstr, nostr::client::NostrClient};
 use nostr_sdk::{Event, Keys, Kind};
 use nostrd::NostrD;
-use rust_joinstr::{joinstr::Joinstr, nostr::client::NostrClient};
 use tokio::time::sleep;
 
 static INIT: Once = Once::new();
