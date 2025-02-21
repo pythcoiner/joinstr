@@ -1,5 +1,9 @@
 pub mod utils;
-use std::{sync::Once, time::Duration};
+use std::{
+    sync::Once,
+    thread::{self, sleep},
+    time::Duration,
+};
 
 use crate::utils::{bootstrap_electrs, funded_wallet_with_bitcoind};
 use electrsd::bitcoind::bitcoincore_rpc::RpcApi;
@@ -10,10 +14,9 @@ use joinstr::{
 };
 use miniscript::bitcoin::Network;
 
-use joinstr::{joinstr::Joinstr, nostr::client::NostrClient};
-use nostr_sdk::{Event, Keys, Kind};
+use joinstr::{joinstr::Joinstr, nostr::sync::NostrClient};
 use nostrd::NostrD;
-use tokio::time::sleep;
+use simple_nostr_client::nostr::{Event, Keys, Kind};
 
 static INIT: Once = Once::new();
 
@@ -22,7 +25,7 @@ pub fn setup_logger() {
         env_logger::builder()
             // Ensures output is only printed in test mode
             .is_test(true)
-            .filter_level(log::LevelFilter::Debug)
+            .filter_level(log::LevelFilter::Info)
             .init();
     });
 }
@@ -40,18 +43,18 @@ impl Relay {
         Relay { nostrd }
     }
 
-    pub async fn new_client(&self, name: &str) -> NostrClient {
+    pub fn new_client(&self, name: &str) -> NostrClient {
         let keys = Keys::generate();
-        self.new_client_with_keys(keys, name).await
+        self.new_client_with_keys(keys, name)
     }
 
-    pub async fn new_client_with_keys(&self, keys: Keys, name: &str) -> NostrClient {
+    pub fn new_client_with_keys(&self, keys: Keys, name: &str) -> NostrClient {
         let mut client = NostrClient::new(name)
             .relay(self.nostrd.url())
             .unwrap()
             .keys(keys)
             .unwrap();
-        client.connect_nostr().await.unwrap();
+        client.connect_nostr().unwrap();
         client
     }
 
@@ -71,28 +74,26 @@ fn clear_nostr_log(relay: &mut Relay) {
     while relay.nostrd.logs.try_recv().is_ok() {}
 }
 
-#[tokio::test]
-async fn simple_dm() {
+#[test]
+fn simple_dm() {
     let relay = Relay::new();
-    let client_a = relay.new_client("client_a").await;
-    let mut client_b = relay.new_client("client_b").await;
-    let mut client_c = relay.new_client("client_c").await;
+    let mut client_a = relay.new_client("client_a");
+    let mut client_b = relay.new_client("client_b");
+    let mut client_c = relay.new_client("client_c");
 
     client_a
         .send_dm(&client_b.get_keys().unwrap().public_key(), "ping".into())
-        .await
         .unwrap();
     let e;
     loop {
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100));
         let event = client_b.receive_event().unwrap();
         if let Some(ev) = event {
             e = ev;
             break;
         }
     }
-    let dm = client_b.decrypt_dm(e).unwrap();
-    let Event { kind, content, .. } = dm;
+    let Event { kind, content, .. } = e;
     assert_eq!(kind, Kind::EncryptedDirectMessage);
     assert_eq!("ping".to_string(), content);
 
@@ -101,31 +102,30 @@ async fn simple_dm() {
     assert!(event.is_none());
 }
 
-#[tokio::test]
-async fn simple_coinjoin() {
+#[test]
+fn simple_coinjoin() {
     let mut relay = Relay::new();
-    let relays = vec![relay.url()];
+    let relays = relay.url();
     let keys = Keys::generate();
     let (url, port, _electrsd, bitcoind) = bootstrap_electrs();
 
     let mut pool_listener = NostrClient::new("pool_listener")
-        .relays(&relays)
+        .relay(relays.clone())
         .unwrap()
         .keys(Keys::generate())
         .unwrap();
-    pool_listener.connect_nostr().await.unwrap();
+    pool_listener.connect_nostr().unwrap();
     // subscribe to 2020 event up to 1 day back in time
-    pool_listener.subscribe_pools(24 * 60 * 60).await.unwrap();
+    pool_listener.subscribe_pools(24 * 60 * 60).unwrap();
 
     // start a separate coordinator
     let mut coordinator = Joinstr::new_initiator(
         keys.clone(),
-        &relays,
+        relays.clone(),
         (&url, port),
         Network::Regtest,
         "initiator",
     )
-    .await
     .unwrap()
     .denomination(0.01)
     .unwrap()
@@ -136,10 +136,9 @@ async fn simple_coinjoin() {
     .min_peers(2)
     .unwrap();
 
-    let _coordinator_handle = tokio::spawn(async move {
+    let coordinator_handle = thread::spawn(move || {
         coordinator
             .start_coinjoin(None, Option::<&WpkhHotSigner>::None)
-            .await
             .unwrap();
         coordinator.final_tx().cloned()
     });
@@ -153,7 +152,7 @@ async fn simple_coinjoin() {
             pool = notif;
             break;
         }
-        sleep(Duration::from_millis(300)).await;
+        sleep(Duration::from_millis(300));
         clear_nostr_log(&mut relay);
     }
 
@@ -163,7 +162,7 @@ async fn simple_coinjoin() {
     let client = Client::new(&url, port).unwrap();
     signer.set_client(client);
 
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_secs(2));
 
     // fetch coins on electrum server
     let coin = signer
@@ -204,39 +203,36 @@ async fn simple_coinjoin() {
         .clone();
 
     let mut peer_a = Joinstr::new_peer(
-        &relays,
+        relays.clone(),
         &pool,
         coins[0].1.clone(),
         address_a,
         Network::Regtest,
         "peer_a",
     )
-    .await
     .unwrap();
 
     let mut peer_b = Joinstr::new_peer(
-        &relays,
+        relays.clone(),
         &pool,
         coins[1].1.clone(),
         address_b,
         Network::Regtest,
         "peer_b",
     )
-    .await
     .unwrap();
 
     let signer_a = signer.clone();
     let pool_a = pool.clone();
-    let _peer_a = tokio::spawn(async move {
-        let _ = peer_a.start_coinjoin(Some(pool_a), Some(&signer_a)).await;
+    let _peer_a = thread::spawn(move || {
+        let _ = peer_a.start_coinjoin(Some(pool_a), Some(&signer_a));
     });
 
-    let _peer_b = tokio::spawn(async move {
-        let _ = peer_b.start_coinjoin(Some(pool), Some(&signer)).await;
+    let _peer_b = thread::spawn(move || {
+        let _ = peer_b.start_coinjoin(Some(pool), Some(&signer));
     });
 
-    let (coordinator,) = tokio::join!(_coordinator_handle);
-    let final_tx = coordinator.unwrap().unwrap();
+    let final_tx = coordinator_handle.join().unwrap().unwrap();
     let _tx = bitcoind
         .client
         .get_raw_transaction(&final_tx.compute_txid(), None)

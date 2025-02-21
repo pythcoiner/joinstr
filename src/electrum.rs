@@ -1,7 +1,6 @@
 use bitcoin::{Address, Amount};
 use hex_conservative::FromHex;
 use miniscript::bitcoin::{consensus::Decodable, OutPoint, Script, Transaction, TxOut, Txid};
-use nostr_sdk::bitcoin::consensus::encode::serialize_hex;
 use simple_electrum_client::{
     electrum::{
         request::Request,
@@ -12,6 +11,7 @@ use simple_electrum_client::{
     },
     raw_client::{self, Client as RawClient},
 };
+use simple_nostr_client::nostr::bitcoin::consensus::encode::serialize_hex;
 use std::{collections::HashMap, fmt::Display, thread::sleep, time::Duration};
 
 use crate::coinjoin::BitcoinBackend;

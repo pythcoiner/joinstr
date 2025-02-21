@@ -1,15 +1,13 @@
-mod error;
-pub use error::Error;
-
 use std::{str::FromStr, time::Duration};
 
 use nostr_sdk::{
     nips::nip04, Client, Event, EventBuilder, Filter, Keys, Kind, Options, PublicKey,
     RelayPoolNotification, Tag, Timestamp,
 };
+
 use tokio::sync::broadcast;
 
-use super::{Pool, PoolMessage};
+use crate::nostr::{error::Error, Pool, PoolMessage};
 
 #[derive(Debug, Default)]
 pub struct NostrClient {

@@ -3,21 +3,21 @@ pub use error::Error;
 
 use std::{
     collections::HashSet,
+    thread::sleep,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use miniscript::bitcoin::{Amount, Network};
-use nostr_sdk::{
+use simple_nostr_client::nostr::{
     bitcoin::{address::NetworkUnchecked, Address},
     hashes::{sha256, Hash, HashEngine},
     Keys, PublicKey,
 };
-use tokio::time::sleep;
 
 use crate::{
     coinjoin::CoinJoin,
     nostr::{
-        client::NostrClient, default_version, Credentials, Fee, InputDataSigned, Pool, PoolMessage,
+        default_version, sync::NostrClient, Credentials, Fee, InputDataSigned, Pool, PoolMessage,
         PoolPayload, PoolType, Timeline, Tor, Vpn,
     },
     signer::{Coin, JoinstrSigner},
@@ -78,10 +78,10 @@ impl<'a> Joinstr<'a> {
     /// Note: this instance do not have a bitcoin backend, it then cannot verify
     ///   that coins registered by other peers exists, and that an output is willing to
     ///   do address reuse.
-    async fn new(keys: Keys, relays: &Vec<String>, name: &str) -> Result<Self, Error> {
-        let mut client = NostrClient::new(name).relays(relays)?.keys(keys)?;
-        client.connect_nostr().await?;
-        let relays = relays.to_vec();
+    fn new(keys: Keys, relay: String, name: &str) -> Result<Self, Error> {
+        let mut client = NostrClient::new(name).relay(relay.clone())?.keys(keys)?;
+        client.connect_nostr()?;
+        let relays = vec![relay];
         Ok(Joinstr {
             client,
             relays,
@@ -97,14 +97,14 @@ impl<'a> Joinstr<'a> {
     /// * `electrum_server` - A tuple (<address>, <port>)
     /// * `name` - Name of the [`Joinstr`] instance (use for debug logs), can
     ///   be an empty &str.
-    async fn new_with_electrum(
+    fn new_with_electrum(
         keys: Keys,
-        relays: &Vec<String>,
+        relay: String,
         electrum_server: (&str, u16),
         name: &str,
     ) -> Result<Self, Error> {
         let electrum = crate::electrum::Client::new(electrum_server.0, electrum_server.1)?;
-        let mut coord = Self::new(keys, relays, name).await?;
+        let mut coord = Self::new(keys, relay, name)?;
         coord.electrum_client = Some(electrum);
         Ok(coord)
     }
@@ -124,8 +124,8 @@ impl<'a> Joinstr<'a> {
     /// Note: this instance do not have a bitcoin backend, it then cannot verify
     ///   that coins registered by other peers exists, and that an output is willing to
     ///   do address reuse.
-    pub async fn new_peer(
-        relays: &Vec<String>,
+    pub fn new_peer(
+        relay: String,
         pool: &Pool,
         input: Coin,
         output: Address<NetworkUnchecked>,
@@ -158,8 +158,7 @@ impl<'a> Joinstr<'a> {
         };
         // NOTE: we create a randow key to process pool auth
         // FIXME: is the entropy of the key good enough?
-        let mut peer = Self::new(Keys::generate(), relays, name)
-            .await?
+        let mut peer = Self::new(Keys::generate(), relay, name)?
             .network(network)
             .denomination(denomination)?
             .fee(fee)?
@@ -184,8 +183,8 @@ impl<'a> Joinstr<'a> {
     /// * `name` - Name of the [`Joinstr`] instance (use for debug logs), can
     ///   be an empty &str.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new_peer_with_electrum(
-        relays: &Vec<String>,
+    pub fn new_peer_with_electrum(
+        relay: String,
         pool: &Pool,
         electrum_server: (&str, u16),
         input: Coin,
@@ -194,7 +193,7 @@ impl<'a> Joinstr<'a> {
         name: &str,
     ) -> Result<Self, Error> {
         let electrum = crate::electrum::Client::new(electrum_server.0, electrum_server.1)?;
-        let mut peer = Self::new_peer(relays, pool, input, output, network, name).await?;
+        let mut peer = Self::new_peer(relay, pool, input, output, network, name)?;
         peer.initiator = false;
         peer.electrum_client = Some(electrum);
         Ok(peer)
@@ -213,16 +212,15 @@ impl<'a> Joinstr<'a> {
     ///   be an empty &str.
     ///
     /// Note: the parameters of the pool should be passed with builder pattern
-    pub async fn new_initiator(
+    pub fn new_initiator(
         keys: Keys,
-        relays: &Vec<String>,
+        relay: String,
         electrum_server: (&str, u16),
         network: Network,
         name: &str,
     ) -> Result<Self, Error> {
-        let mut initiator = Self::new_with_electrum(keys, relays, electrum_server, name)
-            .await?
-            .network(network);
+        let mut initiator =
+            Self::new_with_electrum(keys, relay, electrum_server, name)?.network(network);
         initiator.initiator = true;
         Ok(initiator)
     }
@@ -425,7 +423,7 @@ impl<'a> Joinstr<'a> {
     ///
     /// This function will return an error if a pool already exists, if
     ///   some fields of the pool are missing or if posting the event fail.
-    async fn post(&mut self) -> Result<(), Error> {
+    fn post(&mut self) -> Result<(), Error> {
         self.is_ready()?;
         self.pool_not_exists()?;
         let public_key = self.client.get_keys()?.public_key();
@@ -466,7 +464,7 @@ impl<'a> Joinstr<'a> {
             payload: Some(payload),
             network: self.network,
         };
-        self.client.post_event(pool.clone().try_into()?).await?;
+        self.client.post_event(pool.clone().try_into()?)?;
         self.pool = Some(pool);
         Ok(())
     }
@@ -524,13 +522,13 @@ impl<'a> Joinstr<'a> {
     ///   - the pool not exists
     ///   - [`Joinstr::output`] is missing
     ///   - fails to send the nostr message
-    async fn register_output(&mut self) -> Result<(), Error> {
+    fn register_output(&mut self) -> Result<(), Error> {
         if let Some(address) = &self.output {
             // let msg = PoolMessage::Outputs(Outputs::single(address.as_unchecked().clone()));
             let msg = PoolMessage::Output(address.as_unchecked().clone());
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
-            self.client.send_pool_message(&npub, msg).await?;
+            self.client.send_pool_message(&npub, msg)?;
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -582,7 +580,7 @@ impl<'a> Joinstr<'a> {
     ///   - the nostr client do not have private keys
     ///   - timeout elapsed
     ///   - peer count do not match
-    async fn register_outputs(&mut self, initiator: bool) -> Result<(), Error> {
+    fn register_outputs(&mut self, initiator: bool) -> Result<(), Error> {
         self.pool_exists()?;
         let (expired, start_early) = self.start_timeline()?;
         let payload = self.payload_as_ref()?.clone();
@@ -608,7 +606,7 @@ impl<'a> Joinstr<'a> {
                                     id: self.pool_as_ref()?.id.clone(),
                                     key: self.client.get_keys()?.secret_key().clone(),
                                 });
-                                self.client.send_pool_message(&npub, response).await?;
+                                self.client.send_pool_message(&npub, response)?;
                             }
                             peers.insert(npub);
                             log::debug!(
@@ -639,7 +637,7 @@ impl<'a> Joinstr<'a> {
                     }
                 }
             } else {
-                sleep(Duration::from_micros(WAIT)).await;
+                sleep(Duration::from_micros(WAIT));
             }
         }
 
@@ -650,7 +648,7 @@ impl<'a> Joinstr<'a> {
 
         if let Some(output) = self.output.as_ref() {
             coinjoin.add_output(output.clone());
-            self.register_output().await?;
+            self.register_output()?;
         }
 
         // register ouputs
@@ -687,7 +685,7 @@ impl<'a> Joinstr<'a> {
                     }
                 }
             } else {
-                sleep(Duration::from_micros(WAIT)).await;
+                sleep(Duration::from_micros(WAIT));
             }
         }
 
@@ -719,7 +717,7 @@ impl<'a> Joinstr<'a> {
     ///   - the inner pool dont exists
     ///   - [`Joinstr::input`] is None
     ///   - sending the input fails
-    async fn register_input<S>(&mut self, signer: &S) -> Result<(), Error>
+    fn register_input<S>(&mut self, signer: &S) -> Result<(), Error>
     where
         S: JoinstrSigner,
     {
@@ -734,7 +732,7 @@ impl<'a> Joinstr<'a> {
             let msg = PoolMessage::Input(signed_input);
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
-            self.client.send_pool_message(&npub, msg).await?;
+            self.client.send_pool_message(&npub, msg)?;
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -797,7 +795,7 @@ impl<'a> Joinstr<'a> {
     ///   - timeout expired
     ///   - trying register an input error
     ///   - trying finalize coinjoin error
-    async fn register_inputs(&mut self) -> Result<(), Error> {
+    fn register_inputs(&mut self) -> Result<(), Error> {
         self.pool_exists()?;
         self.coinjoin_exists()?;
         let payload = self.payload_as_ref()?;
@@ -840,7 +838,7 @@ impl<'a> Joinstr<'a> {
                     }
                 }
             } else {
-                sleep(Duration::from_micros(WAIT)).await;
+                sleep(Duration::from_micros(WAIT));
             }
         }
         if now() > expired {
@@ -856,7 +854,7 @@ impl<'a> Joinstr<'a> {
     ///
     /// This function will return an error if [`Joinstr::coinjoin`] is
     ///   None or generating the psbt fails.
-    async fn generate_unsigned_tx(&mut self) -> Result<(), Error> {
+    fn generate_unsigned_tx(&mut self) -> Result<(), Error> {
         let coinjoin = self.coinjoin_as_mut()?;
         // process unsigned tx
         coinjoin.generate_psbt()?;
@@ -876,7 +874,7 @@ impl<'a> Joinstr<'a> {
     ///
     /// Note: if no backend, the transaction will not been broadcasted
     ///   but no error will be emited.
-    async fn broadcast_tx(&mut self) -> Result<(), Error> {
+    fn broadcast_tx(&mut self) -> Result<(), Error> {
         self.pool_exists()?;
         let tx = self.coinjoin_as_ref()?.tx().ok_or(Error::MissingFinalTx)?;
         if let Some(client) = self.electrum_client.as_mut() {
@@ -902,14 +900,14 @@ impl<'a> Joinstr<'a> {
     ///   - sending a message to the pool fails
     ///   - receiving credentials fails
     ///   - pool connexion timed out
-    async fn join_pool(&mut self) -> Result<(), Error> {
+    fn join_pool(&mut self) -> Result<(), Error> {
         self.pool_exists()?;
         let pool_npub = self.pool_as_ref()?.public_key;
         // TODO: receive the response on a derived npub;
         let my_npub = self.client.get_keys()?.public_key();
+
         self.client
-            .send_pool_message(&pool_npub, PoolMessage::Join(Some(my_npub)))
-            .await?;
+            .send_pool_message(&pool_npub, PoolMessage::Join(Some(my_npub)))?;
         let (timeout, _) = self.start_timeline()?;
 
         let mut connected = false;
@@ -927,9 +925,9 @@ impl<'a> Joinstr<'a> {
                     let fg = &self.client.name;
                     let name = format!("prev_{fg}");
                     let mut new_client = NostrClient::new(&name)
-                        .relays(self.client.get_relays())?
+                        .relay(self.client.get_relay().unwrap())?
                         .keys(keys)?;
-                    new_client.connect_nostr().await?;
+                    new_client.connect_nostr()?;
                     self.client = new_client;
                     connected = true;
                     break;
@@ -940,7 +938,7 @@ impl<'a> Joinstr<'a> {
                     );
                 }
             }
-            sleep(Duration::from_micros(WAIT)).await;
+            sleep(Duration::from_micros(WAIT));
         }
         if !connected {
             return Err(Error::PoolConnectionTimeout);
@@ -964,11 +962,7 @@ impl<'a> Joinstr<'a> {
     /// # Errors
     ///
     /// This function will return an error if any step return an error.
-    pub async fn start_coinjoin<S>(
-        &mut self,
-        pool: Option<Pool>,
-        signer: Option<&S>,
-    ) -> Result<(), Error>
+    pub fn start_coinjoin<S>(&mut self, pool: Option<Pool>, signer: Option<&S>) -> Result<(), Error>
     where
         S: JoinstrSigner,
     {
@@ -976,29 +970,29 @@ impl<'a> Joinstr<'a> {
         if let Some(pool) = pool {
             self.pool_not_exists()?;
             self.pool = Some(pool);
-            self.join_pool().await?;
+            self.join_pool()?;
         } else {
             // broadcast the pool event
-            self.post().await?;
+            self.post()?;
         }
         // register peers & outputs
-        self.register_outputs(initiator).await?;
+        self.register_outputs(initiator)?;
 
-        self.generate_unsigned_tx().await?;
+        self.generate_unsigned_tx()?;
 
         rand_delay();
 
         if self.input.is_some() {
             if let Some(s) = signer {
-                self.register_input(s).await?;
+                self.register_input(s)?;
             } else {
                 return Err(Error::SignerMissing);
             }
         }
 
-        self.register_inputs().await?;
+        self.register_inputs()?;
 
-        self.broadcast_tx().await?;
+        self.broadcast_tx()?;
 
         Ok(())
     }

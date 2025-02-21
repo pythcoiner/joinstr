@@ -1,6 +1,6 @@
 #[derive(Debug)]
 pub enum Error {
-    Nostr(crate::nostr::client::Error),
+    Nostr(crate::nostr::error::Error),
     Event(crate::nostr::EventError),
     Coinjoin(crate::coinjoin::Error),
     Electrum(crate::electrum::Error),
@@ -47,8 +47,8 @@ impl From<crate::coinjoin::Error> for Error {
     }
 }
 
-impl From<crate::nostr::client::Error> for Error {
-    fn from(value: crate::nostr::client::Error) -> Self {
+impl From<crate::nostr::error::Error> for Error {
+    fn from(value: crate::nostr::error::Error) -> Self {
         Self::Nostr(value)
     }
 }

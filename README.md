@@ -44,12 +44,11 @@ cargo tests
 ```rust
     let mut coordinator = Joinstr::new_initiator(
         Keys::generate(),
-        &vec!["wss://relay.nostr".into()],
+        "wss://relay.nostr".into(),
         ("127.0.0.1", 2121),
         Network::Regtest,
         "initiator",
     )
-    .await
     .unwrap()
     .denomination(0.01)
     .unwrap()
@@ -61,7 +60,7 @@ cargo tests
     .unwrap();
     coordinator
         .start_coinjoin(None, Option::<&WpkhHotSigner>::None)
-        .await
+        
         .unwrap();
 ```
 
@@ -99,14 +98,14 @@ cargo tests
 
     // create a peer that will also be a coordinator
     let mut peer = Joinstr::new_peer(
-        &vec!["wss://relay.nostr".into()],
+        "wss://relay.nostr".into(),
         &pool,
         coin.1,
         address,
         Network::Regtest,
         "peer_a",
     )
-    .await
+    
     .unwrap()
     .denomination(0.01)
     .unwrap()
@@ -119,7 +118,6 @@ cargo tests
 
     // try to run the coinjoin
     peer.start_coinjoin(None, Some(&signer))
-        .await
         .unwrap();
 
 ```
@@ -129,16 +127,16 @@ cargo tests
 ```rust 
     // create a nostr client and listen for pool notification
     let mut pool_listener = NostrClient::new("pool_listener")
-        .relays(&vec!["wss://relay.nostr".into()])
+        .relay("wss://relay.nostr".into())
         .unwrap()
         .keys(Keys::generate())
         .unwrap();
-    pool_listener.connect_nostr().await.unwrap();
+    pool_listener.connect_nostr().unwrap();
     // subscribe to pool notifications that have been initiated 2 hours back in time
-    pool_listener.subscribe_pools(2 * 60 * 60).await.unwrap();
+    pool_listener.subscribe_pools(2 * 60 * 60).unwrap();
 
     // wait to receive notifications
-    sleep(Duration::from_millis(3000)).await;
+    sleep(Duration::from_millis(3000));
 
     // list received notifications
     let mut pools = Vec::new();
@@ -181,19 +179,17 @@ cargo tests
 
     // create a peer that will also be a coordinator
     let mut peer = Joinstr::new_peer(
-        &vec!["wss://relay.nostr".into()],
+        "wss://relay.nostr".into(),
         &pool,
         coin.1,
         address,
         Network::Regtest,
         "peer_a",
     )
-    .await
     .unwrap();
 
     // try to run the coinjoin
     peer.start_coinjoin(Some(pool), Some(&signer))
-        .await
         .unwrap();
 
 ```

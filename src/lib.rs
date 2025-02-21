@@ -8,4 +8,6 @@ pub mod utils;
 pub use bip39;
 pub use log;
 pub use miniscript;
+
+#[cfg(feature = "async")]
 pub use nostr_sdk;

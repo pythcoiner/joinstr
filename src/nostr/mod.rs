@@ -1,4 +1,7 @@
-pub mod client;
+#[cfg(feature = "async")]
+pub mod r#async;
+pub mod error;
+pub mod sync;
 
 use bip39::serde::{Deserialize, Serialize};
 use bitcoin::Address;
@@ -8,9 +11,12 @@ use miniscript::bitcoin::{
     consensus::encode::{deserialize_hex, serialize_hex},
     Amount, Network, Psbt, Transaction, TxIn,
 };
-use nostr_sdk::{Event, EventBuilder, Kind};
 use serde::Serializer;
 use serde_json::{Map, Value};
+use simple_nostr_client::nostr::{
+    self,
+    event::{Event, EventBuilder, Kind},
+};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,7 +68,7 @@ pub struct Pool {
     pub network: Network,
     #[serde(rename = "type")]
     pub pool_type: PoolType,
-    pub public_key: nostr_sdk::PublicKey,
+    pub public_key: nostr::PublicKey,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     pub payload: Option<PoolPayload>,
@@ -204,7 +210,7 @@ pub enum PoolMessage {
     Output(miniscript::bitcoin::Address<NetworkUnchecked>),
     Psbt(Psbt),
     Transaction(Transaction),
-    Join(Option<nostr_sdk::PublicKey>),
+    Join(Option<nostr::PublicKey>),
     Credentials(Credentials),
 }
 
@@ -212,9 +218,9 @@ pub enum PoolMessage {
 pub struct Credentials {
     pub id: String,
     #[serde(serialize_with = "serialize_key")]
-    pub key: nostr_sdk::SecretKey,
+    pub key: nostr::SecretKey,
 }
-pub fn serialize_key<S>(key: &nostr_sdk::SecretKey, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_key<S>(key: &nostr::SecretKey, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -305,7 +311,7 @@ impl FromStr for PoolMessage {
                     }
                     "join_pool" => {
                         if let Some(value) = map.get("npub") {
-                            let npub: nostr_sdk::PublicKey = serde_json::from_value(value.clone())?;
+                            let npub: nostr::PublicKey = serde_json::from_value(value.clone())?;
                             Ok(Self::Join(Some(npub)))
                         } else {
                             Ok(Self::Join(None))
@@ -459,7 +465,7 @@ impl PoolMessage {
 
 #[cfg(test)]
 pub mod tests {
-    use nostr_sdk::{Keys, PublicKey};
+    use nostr::{Keys, PublicKey};
 
     use super::*;
     const RAW_POOL: &str = r#"
