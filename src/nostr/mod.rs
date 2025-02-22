@@ -25,6 +25,7 @@ pub struct InputDataSigned {
     pub amount: Option<Amount>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     NoInput,
     TooMuchInputs,

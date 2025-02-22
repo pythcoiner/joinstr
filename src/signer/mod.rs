@@ -1,5 +1,6 @@
 mod error;
 pub use error::Error;
+use serde::{Deserialize, Serialize};
 
 use crate::{electrum::Client, nostr::InputDataSigned};
 use bip39::Mnemonic;
@@ -43,7 +44,7 @@ impl Debug for WpkhHotSigner {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Coin {
     pub txout: TxOut,
     pub outpoint: OutPoint,
@@ -51,10 +52,19 @@ pub struct Coin {
     pub coin_path: CoinPath,
 }
 
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct CoinPath {
     pub depth: u32,
     pub index: Option<u32>,
+}
+
+impl CoinPath {
+    pub fn new(depth: u32, index: u32) -> Self {
+        CoinPath {
+            depth,
+            index: Some(index),
+        }
+    }
 }
 
 pub fn descriptor(
