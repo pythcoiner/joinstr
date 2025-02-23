@@ -1,13 +1,40 @@
-name: joinst
-description: Voinjoin over nostr
+name: joinstr
+description: Coinjoin over nostr
 version: 1.0.0
 
 environment:
   sdk: ^3.7.0
 
 dependencies:
-  ffi: ^2.0.1
+  ffi: ^2.1.4
 
 dev_dependencies:
   lints: ^5.0.0
   test: ^1.24.0
+  ffigen: ^17.0.0
+
+ffigen:
+  name: Joinstr
+  description: Coinjoin over nostr
+  output: lib/joinstr.dart
+  headers:
+    entry-points:
+      - '../rust/joinstr/include/c/joinstr.h'
+  exclude-all-by-default: true
+  functions:
+    include:
+      - 'list_pools'
+      - 'list_coins'
+      - 'initiate_coinjoin'
+      - 'join_coinjoin'
+  structs:
+    include:
+      - 'Network'
+      - 'PoolConfig'
+      - 'PeerConfig'
+      - 'Pools'
+      - 'Coins'
+      - 'Txid'
+  enums:
+    include:
+      - 'Error'

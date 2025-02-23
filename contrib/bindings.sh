@@ -3,10 +3,39 @@
 # Exit if any command fails
 set -e
 
+# Generate C bindings first as C headers needed to generate dart bindings
+
+# Remove old headers
+rm -f rust/joinstr/include/c/joinstr.h
+rm -f rust/joinstr/include/cpp/joinstr.h
+
+# C headers
+cbindgen --lang c  --crate joinstr  -o rust/joinstr/include/c/joinstr.h 
+
+# C++ headers
+cbindgen --crate joinstr  -o rust/joinstr/include/cpp/joinstr.h
+
+# Then generate dart bindings
+
+cd dart
+dart pub get
+
+# Remove old bindings
+rm -f lib/joinstr.dart
+
+# Automated bindings using ffigen
+dart run ffigen --ignore-source-errors
+
+dart analyze
+
+# Generate rust librairies
+
+cd ../rust/joinstr
+
 # Variables
 RUST_LIB_NAME="joinstr"
-ANDROID_OUTPUT_DIR="./dart/android"
-IOS_OUTPUT_DIR="./dart/ios/Frameworks"
+ANDROID_OUTPUT_DIR="../../dart/android"
+IOS_OUTPUT_DIR="../../dart/ios/Frameworks"
 
 # Set default ANDROID_NDK_HOME if not provided
 ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-/opt/android-ndk}"
@@ -65,3 +94,4 @@ echo "Android .so files built and placed in $ANDROID_OUTPUT_DIR"
 # echo "iOS .a file built and placed in $IOS_OUTPUT_DIR"
 
 echo "Build complete!"
+
