@@ -1,4 +1,5 @@
-/target/
-Cargo.lock
+/target/*
+/rust/joinstr/Cargo.lock
 /dart/ios/
 /dart/android/
+Cargo.lock
