@@ -1,6 +1,7 @@
 /target/*
 /rust/joinstr/Cargo.lock
 /rust/simple_nostr_client/Cargo.lock
+/rust/simple_electrum_client/Cargo.lock
 /dart/ios/
 /dart/android/
 Cargo.lock
