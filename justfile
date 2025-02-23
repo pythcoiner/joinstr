@@ -10,7 +10,11 @@ clean:
     rm -fRd dart/ios
     rm -fRd dart/.dart_tool
 
+lint:
+    set -e
+    cargo fmt -- --check
+    cargo clippy --all-features --all-targets -- -D warnings
 
 test:
-    cargo clippy --all-features --all-targets -- -D warnings
+    just lint
     cargo test -- --nocapture
