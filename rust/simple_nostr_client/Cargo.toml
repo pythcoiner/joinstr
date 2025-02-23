@@ -1,0 +1,15 @@
+[package]
+name = "simple_nostr_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4.25"
+nostr = {version = "0.35.0", features = ["nip04"]}
+websocket = {version = "0.27.1", default-features = false, features = ["sync", "sync-ssl"]}
+
+
+[dev-dependencies]
+nostrd = { git = "https://github.com/pythcoiner/nostrd.git", branch = "master" }
+env_logger = "0.11.6"
+joinstr = { git = "https://github.com/pythcoiner/joinstr.git", branch = "master" }

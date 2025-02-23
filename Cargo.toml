@@ -3,4 +3,5 @@ resolver = "2"
 
 members = [
     "rust/joinstr",
+    "rust/simple_nostr_client",
 ]
