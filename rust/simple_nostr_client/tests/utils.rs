@@ -26,10 +26,6 @@ impl Relay {
             .connect()
             .unwrap()
     }
-
-    pub fn url(&self) -> String {
-        self.nostrd.url()
-    }
 }
 
 #[allow(dead_code)]
