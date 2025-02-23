@@ -9,6 +9,8 @@ pub mod utils;
 pub use bip39;
 pub use log;
 pub use miniscript;
+pub use serde;
+pub use serde_json;
 
 #[cfg(feature = "async")]
 pub use nostr_sdk;
@@ -19,7 +21,7 @@ use std::{
     ptr::null,
 };
 
-fn serialize_to_cstring<T>(value: T) -> Result<CString, Error>
+pub fn serialize_to_cstring<T>(value: T) -> Result<CString, Error>
 where
     T: Serialize,
 {

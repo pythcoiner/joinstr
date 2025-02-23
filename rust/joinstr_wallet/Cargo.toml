@@ -1,0 +1,16 @@
+[package]
+name = "joinstr_wallet"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+dirs = "6.0.0"
+joinstr = { path = "../joinstr" }
+libc = "0.2.170"
+serde = { version = "1.0.218", features = ["derive"] }
+url = "2.5.4"
+
+

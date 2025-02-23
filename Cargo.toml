@@ -4,5 +4,6 @@ resolver = "2"
 members = [
     "rust/joinstr",
     "rust/simple_nostr_client",
-    "rust/simple_electrum_client", 
+    "rust/simple_electrum_client",
+    "rust/joinstr_wallet",
 ]
