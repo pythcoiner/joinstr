@@ -7,3 +7,29 @@ members = [
     "rust/simple_electrum_client",
     "rust/joinstr_wallet",
 ]
+
+[workspace.dependencies]
+bip39 = "2.0.0"
+bitcoin = "=0.32.2"
+bitcoin_slices = "0.8.0"
+dirs = "6.0.0"
+hex-conservative = "0.2.1"
+hex_lit = "0.1.1"
+home = "=0.5.9"
+joinstr = { path = "rust/joinstr" }
+libc = "0.2.170"
+log = "0.4.25"
+miniscript = "12.2.0"
+native-tls = "=0.2.13"
+nostr = "0.35.0"
+nostr-sdk = "0.35.0"
+nostrd = { git = "https://github.com/pythcoiner/nostrd.git", branch = "master" }
+openssl = "0.10.66"
+rand = "0.8.5"
+serde = "1.0.218"
+serde_json = "1.0.128"
+simple_electrum_client = { path = "rust/simple_electrum_client" }
+simple_nostr_client = { path = "rust/simple_nostr_client" }
+tokio = "1.40.0"
+url = "2.5.4"
+websocket = { version = "0.27.1", default-features = false }

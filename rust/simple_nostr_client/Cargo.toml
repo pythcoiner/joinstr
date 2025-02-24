@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-log = "0.4.25"
-nostr = {version = "0.35.0", features = ["nip04"]}
-websocket = {version = "0.27.1", default-features = false, features = ["sync", "sync-ssl"]}
+log = { workspace = true }
+nostr = { workspace = true, features = ["nip04"] }
+websocket = { workspace = true, features = ["sync", "sync-ssl"] }
 
 
 [dev-dependencies]
-nostrd = { git = "https://github.com/pythcoiner/nostrd.git", branch = "master" }
+nostrd = { workspace = true }
 env_logger = "0.11.6"
-joinstr = { path = "../joinstr" }
+joinstr = { workspace = true }

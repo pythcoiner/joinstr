@@ -11,23 +11,23 @@ default = []
 async = ["nostr-sdk", "tokio"]
 
 [dependencies]
-home = "=0.5.9"
-bitcoin = "=0.32.2"
-bip39 = { version = "2.0.0", features = ["rand"] }
-hex-conservative = "0.2.1"
-miniscript = {version = "12.2.0", features = ["base64", "serde"]}
-nostr-sdk = {version = "0.35.0", optional = true}
-serde = { version = "1.0.210", features = ["derive"] }
-serde_json = "1.0.128"
-tokio = {version = "1.40.0", optional = true }
-log = "0.4.22"
+home = { workspace = true }
+bitcoin = { workspace = true }
+bip39 = { workspace = true, features = ["rand"] }
+hex-conservative = { workspace = true }
+miniscript = { workspace = true, features = ["base64", "serde"] }
+nostr-sdk = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, optional = true }
+log = { workspace = true }
 env_logger = "=0.10.2"
-rand = "0.8.5"
-simple_nostr_client = { path = "../simple_nostr_client" }
-simple_electrum_client = { path = "../simple_electrum_client" }
-native-tls = "=0.2.13"
+rand = { workspace = true }
+simple_nostr_client = { workspace = true }
+simple_electrum_client = { workspace = true }
+native-tls = { workspace = true }
 
 [dev-dependencies]
 electrsd = { git = "https://github.com/pythcoiner/electrsd.git", branch = "buffered_logs"}
-nostrd = { git = "https://github.com/pythcoiner/nostrd.git", branch = "master" }
+nostrd = { workspace = true }
 

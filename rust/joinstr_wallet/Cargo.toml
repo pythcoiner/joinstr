@@ -7,10 +7,10 @@ edition = "2021"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-dirs = "6.0.0"
-joinstr = { path = "../joinstr" }
-libc = "0.2.170"
-serde = { version = "1.0.218", features = ["derive"] }
-url = "2.5.4"
+dirs = { workspace = true }
+joinstr = { workspace = true }
+libc = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+url = { workspace = true }
 
 
