@@ -5,7 +5,7 @@ members = [
     "rust/joinstr",
     "rust/simple_nostr_client",
     "rust/simple_electrum_client",
-    "rust/joinstr_wallet",
+    "rust/joinstr_wallet", "rust/qt_joinstr",
 ]
 
 [workspace.dependencies]
@@ -33,3 +33,11 @@ simple_nostr_client = { path = "rust/simple_nostr_client" }
 tokio = "1.40.0"
 url = "2.5.4"
 websocket = { version = "0.27.1", default-features = false }
+
+cxx = "1.0.141"
+cxx-qt = "0.7.0"
+cxx-qt-lib = "0.7.0"
+# cxx-qt = { path = "../cxx-qt/crates/cxx-qt" }
+# cxx-qt-lib = { path = "../cxx-qt/crates/cxx-qt-lib" }
+cxx-qt-build = "0.7.0"
+# cxx-qt-build = { path = "../cxx-qt/crates/cxx-qt-build", features = ["link_qt_object_files"] }
