@@ -5,6 +5,7 @@ clean:
     rm -fRd target
     rm -fRd rust/joinstr/include/*
     rm -fRd rust/joinstr_wallet/include/*
+    rm -fRd rust/qt_joinstr/include/*
     rm -fRd dart/lib/joinstr.dart
     rm -fRd dart/android
     rm -fRd dart/ios
@@ -26,3 +27,7 @@ wallet:
     cp target/release/libjoinstr_wallet.a rust/joinstr_wallet/include/libjoinstr_wallet.a
     cp target/release/libjoinstr_wallet.d rust/joinstr_wallet/include/libjoinstr_wallet.d
     cp target/release/libjoinstr_wallet.so rust/joinstr_wallet/include/libjoinstr_wallet.so
+
+qt:
+    just clean
+    ./rust/qt_joinstr/build.sh

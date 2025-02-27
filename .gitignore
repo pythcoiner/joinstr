@@ -8,4 +8,5 @@
 /dart/lib/
 /rust/joinstr/include
 /rust/joinstr_wallet/include
+/rust/qt_joinstr/include
 Cargo.lock
