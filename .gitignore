@@ -5,7 +5,6 @@
 /dart/.dart_tool
 /dart/ios/
 /dart/android/
-/dart/lib/
 /rust/joinstr/include
 /rust/joinstr_wallet/include
 Cargo.lock
