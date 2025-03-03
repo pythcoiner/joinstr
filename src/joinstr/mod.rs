@@ -306,7 +306,7 @@ impl<'a> Joinstr<'a> {
 
         // Validate if it's a valid "wss://" URL
         if let Ok(parsed_url) = Url::parse(&url) {
-            if parsed_url.scheme() != "wss" {
+            if parsed_url.scheme() != "wss" && parsed_url.scheme() != "ws" {
                 return Err(Error::InvalidRelayAddress);
             }
 
