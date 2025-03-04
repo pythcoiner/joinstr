@@ -41,6 +41,7 @@ pub enum Error {
     TimelineDuration,
     AlreadyHaveInput,
     AlreadyHaveOutput,
+    InvalidRelayAddress,
 }
 
 impl From<crate::coinjoin::Error> for Error {
