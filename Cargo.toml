@@ -32,4 +32,6 @@ simple_electrum_client = { path = "rust/simple_electrum_client" }
 simple_nostr_client = { path = "rust/simple_nostr_client" }
 tokio = "1.40.0"
 url = "2.5.4"
+litemap = "=0.7.4"
+zerofrom = "=0.1.5"
 websocket = { version = "0.27.1", default-features = false }
