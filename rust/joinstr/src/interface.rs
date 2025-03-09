@@ -1,5 +1,6 @@
 use std::{fmt::Display, thread::sleep, time::Duration};
 
+use bip39::Mnemonic;
 use bitcoin::{address::NetworkUnchecked, Address, Network};
 use simple_nostr_client::nostr::Keys;
 
@@ -73,11 +74,11 @@ pub struct PoolConfig {
 }
 
 pub struct PeerConfig {
-    pub mnemonics: String,
+    pub mnemonics: Mnemonic,
     pub electrum_address: String,
     pub electrum_port: u16,
-    pub input: String,
-    pub output: String,
+    pub input: Coin,
+    pub output: Address<NetworkUnchecked>,
     pub relay: String,
 }
 
@@ -128,12 +129,13 @@ pub fn initiate_coinjoin(config: PoolConfig, peer: PeerConfig) -> Result<String 
     .simple_timeout(now() + config.max_duration)?
     .min_peers(config.peers)?;
 
-    let mut signer = WpkhHotSigner::new_from_mnemonics(config.network, &peer.mnemonics)?;
+    let mut signer =
+        WpkhHotSigner::new_from_mnemonics(config.network, &peer.mnemonics.to_string())?;
     let client = Client::new(&url, port)?;
     signer.set_client(client);
 
-    let addr: Address<NetworkUnchecked> = serde_json::from_str(&peer.output)?;
-    let coin: Coin = serde_json::from_str(&peer.input)?;
+    let addr = peer.output;
+    let coin = peer.input;
 
     initiator.set_coin(coin)?;
     initiator.set_address(addr)?;
@@ -188,8 +190,8 @@ pub fn join_coinjoin(
 ) -> Result<String /* Txid */, Error> {
     let pool: Pool = serde_json::from_str(&pool)?;
     let (url, port) = (peer.electrum_address, peer.electrum_port);
-    let addr: Address<NetworkUnchecked> = serde_json::from_str(&peer.output)?;
-    let coin: Coin = serde_json::from_str(&peer.input)?;
+    let addr = peer.output;
+    let coin = peer.input;
     let mut joinstr_peer = Joinstr::new_peer_with_electrum(
         peer.relay.clone(),
         &pool,
@@ -200,7 +202,7 @@ pub fn join_coinjoin(
         "peer",
     )?;
 
-    let mut signer = WpkhHotSigner::new_from_mnemonics(pool.network, &peer.mnemonics)?;
+    let mut signer = WpkhHotSigner::new_from_mnemonics(pool.network, &peer.mnemonics.to_string())?;
     let client = Client::new(&url, port)?;
     signer.set_client(client);
 
