@@ -9,6 +9,7 @@ members = [
 ]
 
 [workspace.dependencies]
+url = "=2.5.2"
 bip39 = "2.0.0"
 bitcoin = "=0.32.2"
 bitcoin_slices = "0.8.0"
@@ -31,5 +32,4 @@ serde_json = "1.0.128"
 simple_electrum_client = { path = "rust/simple_electrum_client" }
 simple_nostr_client = { path = "rust/simple_nostr_client" }
 tokio = "1.40.0"
-url = "2.5.4"
 websocket = { version = "0.27.1", default-features = false }
