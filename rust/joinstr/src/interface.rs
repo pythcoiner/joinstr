@@ -11,6 +11,7 @@ use crate::{
     utils::now,
 };
 
+#[derive(Debug)]
 pub enum Error {
     Unknown,
     NostrClient(crate::nostr::error::Error),
