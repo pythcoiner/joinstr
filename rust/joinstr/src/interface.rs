@@ -179,14 +179,10 @@ pub fn list_pools(back: u64, timeout: u64, relay: String) -> Result<Vec<Pool>, E
 /// Try to join an already initiated coinjoin
 ///
 /// # Arguments
-/// * `pool` - [`String`] containing a json serialization of a [`Pool`]
+/// * `pool` - information about the pool
 /// * `peer` - information about the peer
 ///
-pub fn join_coinjoin(
-    pool: String, /* Pool */
-    peer: PeerConfig,
-) -> Result<String /* Txid */, Error> {
-    let pool: Pool = serde_json::from_str(&pool)?;
+pub fn join_coinjoin(pool: Pool, peer: PeerConfig) -> Result<String /* Txid */, Error> {
     let (url, port) = (peer.electrum_address, peer.electrum_port);
     let addr = peer.output;
     let coin = peer.input;
