@@ -9,6 +9,7 @@ members = [
 ]
 
 [workspace.dependencies]
+base64ct = "=1.6.0"
 url = "=2.5.2"
 bip39 = "2.0.0"
 bitcoin = "=0.32.2"
@@ -33,3 +34,6 @@ simple_electrum_client = { path = "rust/simple_electrum_client" }
 simple_nostr_client = { path = "rust/simple_nostr_client" }
 tokio = "1.40.0"
 websocket = { version = "0.27.1", default-features = false }
+
+[patch."https://github.com/pythcoiner/joinstr"]
+base64ct = "=1.6.0"
