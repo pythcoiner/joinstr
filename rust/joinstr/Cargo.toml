@@ -21,7 +21,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, optional = true }
 log = { workspace = true }
-env_logger = "=0.10.2"
 rand = { workspace = true }
 simple_nostr_client = { workspace = true }
 simple_electrum_client = { workspace = true }
@@ -30,4 +29,5 @@ native-tls = { workspace = true }
 [dev-dependencies]
 electrsd = { git = "https://github.com/pythcoiner/electrsd.git", branch = "buffered_logs"}
 nostrd = { workspace = true }
+env_logger = "0.11.6"
 
