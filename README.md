@@ -24,14 +24,7 @@ to be handled at consumer or OS level.
 
 # Project organisation:
 
-The rust library can be found [here](./rust/joinstr/README.md).
-
-Experimentals bindings can be generated for C/C++/Dart by running `just binding` (you need to have [`just`](https://github.com/casey/just) installed) or directly the binding [script](./contrib/bindings.sh)
-
-If no error during binding generation, bindings will be available at:
-  - `rust/include/c` for the C headers
-  - `rust/include/cpp` for the C++ headers
-  - `dart/lib` for dart bindings
+The rust library can be found [here](./rust/joinstr).
 
 
 

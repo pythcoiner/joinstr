@@ -2,10 +2,5 @@
 /rust/joinstr/Cargo.lock
 /rust/simple_nostr_client/Cargo.lock
 /rust/simple_electrum_client/Cargo.lock
-/dart/.dart_tool
-/dart/ios/
-/dart/android/
-/dart/lib/
-/rust/joinstr/include
 /rust/joinstr_wallet/include
 Cargo.lock
