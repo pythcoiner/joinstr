@@ -19,7 +19,7 @@ hex_lit = "0.1.1"
 home = "=0.5.9"
 joinstr = { path = "rust/joinstr" }
 libc = "0.2.170"
-log = "0.4.25"
+log = "0.4.20"
 miniscript = "12.2.0"
 native-tls = "=0.2.13"
 nostr = "0.35.0"
