@@ -11,6 +11,8 @@ pub use log;
 pub use miniscript;
 pub use serde;
 pub use serde_json;
+pub use simple_electrum_client;
+pub use simple_nostr_client;
 
 #[cfg(feature = "async")]
 pub use nostr_sdk;
