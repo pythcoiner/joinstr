@@ -174,6 +174,7 @@ impl Client {
         &mut self,
         script: &Script,
     ) -> Result<(Vec<(TxOut, OutPoint)>, HashMap<Txid, Transaction>), Error> {
+        println!("joinstr::electrum::Client::get_coin_at()");
         let mut txouts = Vec::new();
         let mut transactions = HashMap::new();
         let txs = self.get_coins_tx_at(script)?;
@@ -190,6 +191,7 @@ impl Client {
             }
             transactions.insert(txid, tx);
         }
+        println!("joinstr::electrum::Client::get_coin_at() ended");
         Ok((txouts, transactions))
     }
 
