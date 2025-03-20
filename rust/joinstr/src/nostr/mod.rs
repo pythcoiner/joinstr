@@ -4,20 +4,25 @@ pub mod error;
 pub mod sync;
 
 use bip39::serde::{Deserialize, Serialize};
-use bitcoin::Address;
+use bitcoin::{hashes::sha256, Address};
 use hex_conservative::DisplayHex;
 use miniscript::bitcoin::{
     address::NetworkUnchecked,
     consensus::encode::{deserialize_hex, serialize_hex},
     Amount, Network, Psbt, Transaction, TxIn,
 };
+use nostr::hashes::{Hash, HashEngine};
+use nostr::PublicKey;
 use serde::Serializer;
 use serde_json::{Map, Value};
 use simple_nostr_client::nostr::{
     self,
     event::{Event, EventBuilder, Kind},
 };
-use std::str::FromStr;
+use std::{
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputDataSigned {
@@ -73,6 +78,45 @@ pub struct Pool {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     pub payload: Option<PoolPayload>,
+}
+
+impl Pool {
+    pub fn create(
+        relay: String,
+        denomination: u64,
+        peers: usize,
+        timeout: u64,
+        fee: u32,
+        network: bitcoin::Network,
+        key: PublicKey,
+    ) -> Pool {
+        let timeout = SystemTime::now()
+            .checked_add(Duration::from_secs(timeout))
+            .expect("valid timestamp")
+            .duration_since(UNIX_EPOCH)
+            .expect("valid timestamp")
+            .as_secs();
+
+        let payload = PoolPayload {
+            denomination: bitcoin::Amount::from_sat(denomination),
+            peers,
+            timeout: Timeline::Simple(timeout),
+            relays: vec![relay],
+            fee: Fee::Fixed(fee),
+            transport: default_transport(),
+        };
+
+        let id = pool_id(&key);
+
+        Self {
+            versions: default_version(),
+            id,
+            network,
+            pool_type: PoolType::Create,
+            public_key: key,
+            payload: Some(payload),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -462,6 +506,29 @@ impl PoolMessage {
         let str = serde_json::to_string_pretty(&json)?;
         Ok(str)
     }
+}
+
+pub fn default_transport() -> Transport {
+    crate::nostr::Transport {
+        vpn: Some(Vpn {
+            enable: false,
+            gateway: None,
+        }),
+        tor: Some(Tor { enable: false }),
+    }
+}
+
+pub fn pool_id(key: &PublicKey) -> String {
+    let mut engine = sha256::Hash::engine();
+    engine.input(&key.clone().to_bytes());
+    engine.input(
+        &SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("unix timestamp must not fail")
+            .as_micros()
+            .to_be_bytes(),
+    );
+    sha256::Hash::from_engine(engine).to_string()
 }
 
 #[cfg(test)]

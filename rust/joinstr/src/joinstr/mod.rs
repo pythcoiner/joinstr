@@ -18,7 +18,7 @@ use crate::{
     coinjoin::CoinJoin,
     nostr::{
         default_version, sync::NostrClient, Credentials, Fee, InputDataSigned, Pool, PoolMessage,
-        PoolPayload, PoolType, Timeline, Tor, Transport, Vpn,
+        PoolPayload, PoolType, Timeline, Tor, Vpn,
     },
     signer::{Coin, JoinstrSigner},
     utils::{now, rand_delay},
@@ -1030,27 +1030,4 @@ impl<'a> Joinstr<'a> {
 
         Ok(())
     }
-}
-
-pub fn default_transport() -> Transport {
-    crate::nostr::Transport {
-        vpn: Some(Vpn {
-            enable: false,
-            gateway: None,
-        }),
-        tor: Some(Tor { enable: false }),
-    }
-}
-
-pub fn pool_id(key: PublicKey) -> String {
-    let mut engine = sha256::Hash::engine();
-    engine.input(&key.clone().to_bytes());
-    engine.input(
-        &SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("unix timestamp must not fail")
-            .as_micros()
-            .to_be_bytes(),
-    );
-    sha256::Hash::from_engine(engine).to_string()
 }
