@@ -18,7 +18,7 @@ use crate::{
     coinjoin::CoinJoin,
     nostr::{
         default_version, sync::NostrClient, Credentials, Fee, InputDataSigned, Pool, PoolMessage,
-        PoolPayload, PoolType, Timeline, Tor, Vpn,
+        PoolPayload, PoolType, Timeline, Tor, Transport, Vpn,
     },
     signer::{Coin, JoinstrSigner},
     utils::{now, rand_delay},
@@ -1029,5 +1029,15 @@ impl<'a> Joinstr<'a> {
         self.broadcast_tx()?;
 
         Ok(())
+    }
+}
+
+pub fn default_transport() -> Transport {
+    crate::nostr::Transport {
+        vpn: Some(Vpn {
+            enable: false,
+            gateway: None,
+        }),
+        tor: Some(Tor { enable: false }),
     }
 }
