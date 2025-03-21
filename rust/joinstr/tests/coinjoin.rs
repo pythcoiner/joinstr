@@ -21,7 +21,7 @@ fn simple_tx() {
     assert_eq!(coin, 1);
 
     // generate output addresses
-    let addr0 = signer.recv_addr_at(100).unwrap();
+    let addr0 = signer.recv_addr_at(100);
 
     // prepare coinjoin template
     let mut coinjoin = CoinJoin::<Client>::new(Amount::from_btc(0.1).unwrap(), None)
@@ -63,11 +63,11 @@ fn simple_coinjoin() {
     });
 
     // generate output addresses
-    let addr0 = signer.recv_addr_at(100).unwrap();
-    let addr1 = signer.recv_addr_at(101).unwrap();
-    let addr2 = signer.recv_addr_at(102).unwrap();
-    let addr3 = signer.recv_addr_at(103).unwrap();
-    let addr4 = signer.recv_addr_at(104).unwrap();
+    let addr0 = signer.recv_addr_at(100);
+    let addr1 = signer.recv_addr_at(101);
+    let addr2 = signer.recv_addr_at(102);
+    let addr3 = signer.recv_addr_at(103);
+    let addr4 = signer.recv_addr_at(104);
 
     // prepare coinjoin template
     let mut coinjoin = CoinJoin::<Client>::new(Amount::from_btc(0.1).unwrap(), None)

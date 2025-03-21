@@ -76,7 +76,7 @@ pub fn funded_wallet(amounts: &[f64]) -> (WpkhHotSigner, Client, ElectrsD, Bitco
     let (client, electrsd, bitcoind) = tcp_client();
     let signer = WpkhHotSigner::new(Network::Regtest).unwrap();
     for (i, a) in amounts.iter().enumerate() {
-        let addr = signer.recv_addr_at(i as u32).unwrap();
+        let addr = signer.recv_addr_at(i as u32);
         let amount = Amount::from_btc(*a).unwrap();
         send_to_address(&bitcoind, &addr, amount);
     }
@@ -87,7 +87,7 @@ pub fn funded_wallet(amounts: &[f64]) -> (WpkhHotSigner, Client, ElectrsD, Bitco
 pub fn funded_wallet_with_bitcoind(amounts: &[f64], bitcoind: &BitcoinD) -> WpkhHotSigner {
     let signer = WpkhHotSigner::new(Network::Regtest).unwrap();
     for (i, a) in amounts.iter().enumerate() {
-        let addr = signer.recv_addr_at(i as u32).unwrap();
+        let addr = signer.recv_addr_at(i as u32);
         let amount = Amount::from_btc(*a).unwrap();
         send_to_address(bitcoind, &addr, amount);
     }

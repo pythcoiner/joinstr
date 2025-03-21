@@ -394,24 +394,22 @@ impl WpkhHotSigner {
         self.mnemonic.clone()
     }
 
-    /// Returns the receive address at the given `index`. Returns None
-    ///   if the derivation fails.
-    pub fn recv_addr_at(&self, index: u32) -> Option<Address> {
+    /// Returns the receive address at the given `index`.
+    pub fn recv_addr_at(&self, index: u32) -> Address {
         self.address_at(&CoinPath {
             depth: 0,
             index: Some(index),
         })
-        .ok()
+        .expect("index is not none")
     }
 
-    /// Returns the change address at the given `index`. Returns None
-    ///   if the derivation fails.
-    pub fn change_addr_at(&self, index: u32) -> Option<Address> {
+    /// Returns the change address at the given `index`.
+    pub fn change_addr_at(&self, index: u32) -> Address {
         self.address_at(&CoinPath {
             depth: 1,
             index: Some(index),
         })
-        .ok()
+        .expect("index is not none")
     }
 }
 
