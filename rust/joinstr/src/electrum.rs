@@ -16,9 +16,9 @@ use std::{collections::HashMap, fmt::Display, thread::sleep, time::Duration};
 
 use crate::coinjoin::BitcoinBackend;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
-    Electrum(raw_client::Error),
+    Electrum(String),
     TxParsing,
     WrongResponse,
     WrongOutPoint,
@@ -39,7 +39,7 @@ impl Display for Error {
 
 impl From<raw_client::Error> for Error {
     fn from(value: raw_client::Error) -> Self {
-        Error::Electrum(value)
+        Error::Electrum(format!("{value:?}"))
     }
 }
 
