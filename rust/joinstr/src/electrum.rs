@@ -220,14 +220,14 @@ impl Client {
                             Response::SHSubscribe(SHSubscribeResponse { result: status, id }) => {
                                 let sh = watched_spks_sh.get(&id).expect("already inserted");
                                 let sbf = sh_sbf_map.get(sh).expect("already inserted");
-                                statuses.insert(sbf, status);
+                                statuses.insert(sbf.clone(), status);
                             }
                             Response::SHNotification(SHNotification {
                                 status: (sh, status),
                                 ..
                             }) => {
                                 let sbf = sh_sbf_map.get(&sh).expect("already inserted");
-                                statuses.insert(sbf, status);
+                                statuses.insert(sbf.clone(), status);
                             }
                             Response::SHGetHistory(SHGetHistoryResponse { history, .. }) => {
                                 for tx in history {
@@ -252,6 +252,29 @@ impl Client {
                             }
                             _ => {}
                         }
+                    }
+                    if !txid_to_get.is_empty() {
+                        let mut batch = Vec::new();
+                        for txid in txid_to_get {
+                            let req = Request::tx_get(txid);
+                            self.register(req.clone());
+                            batch.push(req);
+                        }
+                        self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                    }
+                    if !statuses.is_empty() {
+                        let rsp = CoinResponse::Status(statuses);
+                        send.send(rsp.into()).unwrap();
+                    }
+                    // let mut txs = Vec::new();
+                    if !txs.is_empty() {
+                        let mut batch = Vec::new();
+                        for tx in txs {
+                            let height = txids.get(&tx.compute_txid()).expect("already inserted");
+                            batch.push((tx, *height));
+                        }
+                        let rsp = CoinResponse::Txs(batch);
+                        send.send(rsp.into()).unwrap();
                     }
                 }
                 Ok(None) => {}

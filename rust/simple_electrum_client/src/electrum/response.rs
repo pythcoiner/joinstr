@@ -361,7 +361,7 @@ pub struct SHGetBalanceResponse {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct HistoryResult {
-    pub height: usize,
+    pub height: u64,
     #[serde(rename = "tx_hash")]
     pub txid: Txid,
     pub fee: Option<usize>,
