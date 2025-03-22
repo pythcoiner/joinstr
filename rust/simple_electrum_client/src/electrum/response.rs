@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use super::{method::Method, params::VersionKind, request::Request, types::ScriptHash, Error};
 use miniscript::bitcoin::Txid;
@@ -141,6 +141,16 @@ impl Response {
 pub struct ErrorResult {
     pub code: usize,
     pub message: String,
+}
+
+impl Display for ErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Electrum error {}: {}",
+            self.error.code, self.error.message
+        )
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]

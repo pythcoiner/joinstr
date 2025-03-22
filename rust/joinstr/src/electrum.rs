@@ -1,18 +1,25 @@
-use bitcoin::{Address, Amount};
+use bitcoin::{consensus, Address, Amount, ScriptBuf};
 use hex_conservative::FromHex;
 use miniscript::bitcoin::{consensus::Decodable, OutPoint, Script, Transaction, TxOut, Txid};
 use simple_electrum_client::{
     electrum::{
         request::Request,
         response::{
-            ErrorResponse, Response, SHGetHistoryResponse, TxBroadcastResponse, TxGetResponse,
-            TxGetResult,
+            ErrorResponse, HistoryResult, Response, SHGetHistoryResponse, SHNotification,
+            SHSubscribeResponse, TxBroadcastResponse, TxGetResponse, TxGetResult,
         },
+        types::ScriptHash,
     },
     raw_client::{self, Client as RawClient},
 };
 use simple_nostr_client::nostr::bitcoin::consensus::encode::serialize_hex;
-use std::{collections::HashMap, fmt::Display, thread::sleep, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    sync::mpsc,
+    thread::{self, sleep},
+    time::Duration,
+};
 
 use crate::coinjoin::BitcoinBackend;
 
@@ -41,6 +48,28 @@ impl From<raw_client::Error> for Error {
     fn from(value: raw_client::Error) -> Self {
         Error::Electrum(format!("{value:?}"))
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CoinStatus {
+    Unconfirmed,
+    Confirmed,
+    Spend,
+}
+
+#[derive(Debug, Clone)]
+pub enum CoinRequest {
+    Subscribe(Vec<ScriptBuf>),
+    Txs(Vec<ScriptBuf>),
+    Stop,
+}
+
+#[derive(Debug, Clone)]
+pub enum CoinResponse {
+    Status(BTreeMap<ScriptBuf, Option<String>>),
+    Txs(Vec<(Transaction, u64 /* block_height */)>),
+    Stopped,
+    Error(String),
 }
 
 #[derive(Debug)]
@@ -101,6 +130,143 @@ impl Client {
         let id = self.last_id;
         self.last_id = self.last_id.wrapping_add(1);
         id
+    }
+
+    fn register(&mut self, mut req: Request) -> usize {
+        let id = self.id();
+        req.id = id;
+        self.index.insert(req.id, req);
+        id
+    }
+
+    pub fn listen<RQ, RS>(self) -> (mpsc::Sender<RQ>, mpsc::Receiver<RS>)
+    where
+        RQ: Into<CoinRequest> + Send + 'static,
+        RS: From<CoinResponse> + Send + 'static,
+    {
+        let (sender, request) = mpsc::channel();
+        let (response, receiver) = mpsc::channel();
+        thread::spawn(move || self.listen_txs(response, request));
+
+        (sender, receiver)
+    }
+
+    fn listen_txs<RQ, RS>(mut self, send: mpsc::Sender<RS>, recv: mpsc::Receiver<RQ>)
+    where
+        RQ: Into<CoinRequest> + Send + 'static,
+        RS: From<CoinResponse> + Send + 'static,
+    {
+        let mut txids = BTreeMap::new();
+        let mut watched_spks_sh = BTreeMap::<usize /* request_id */, ScriptHash>::new();
+        let mut sh_sbf_map = BTreeMap::<ScriptHash, ScriptBuf>::new();
+
+        loop {
+            let mut received = false;
+            // Handle requests
+            match recv.try_recv() {
+                Ok(rq) => {
+                    received = true;
+                    let rq: CoinRequest = rq.into();
+                    match rq {
+                        CoinRequest::Subscribe(sbfs) => {
+                            let mut batch = vec![];
+                            for sbf in sbfs {
+                                let sub = Request::subscribe_sh(&sbf);
+                                let id = self.register(sub.clone());
+                                let sh = ScriptHash::new(&sbf);
+                                watched_spks_sh.insert(id, sh);
+                                sh_sbf_map.insert(sh, sbf);
+                                batch.push(sub);
+                            }
+                            // TODO: do not unwrap
+                            self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                        }
+                        CoinRequest::Txs(sbfs) => {
+                            let mut batch = vec![];
+                            for sbf in sbfs {
+                                let history = Request::sh_get_history(&sbf);
+                                self.register(history.clone());
+                                batch.push(history);
+                            }
+                            // TODO: do not unwrap
+                            self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                        }
+                        CoinRequest::Stop => {
+                            send.send(CoinResponse::Stopped.into()).unwrap();
+                            return;
+                        }
+                    };
+                }
+                Err(e) => {
+                    match e {
+                        mpsc::TryRecvError::Empty => {}
+                        mpsc::TryRecvError::Disconnected => {
+                            // NOTE: caller has dropped the channel
+                            // == Close request
+                            return;
+                        }
+                    }
+                }
+            }
+            // Handle responses
+            match self.inner.try_recv(&self.index) {
+                Ok(Some(r)) => {
+                    received = true;
+                    let mut statuses = BTreeMap::new();
+                    let mut txs = Vec::new();
+                    let mut txid_to_get = Vec::new();
+                    for r in r {
+                        match r {
+                            Response::SHSubscribe(SHSubscribeResponse { result: status, id }) => {
+                                let sh = watched_spks_sh.get(&id).expect("already inserted");
+                                let sbf = sh_sbf_map.get(sh).expect("already inserted");
+                                statuses.insert(sbf, status);
+                            }
+                            Response::SHNotification(SHNotification {
+                                status: (sh, status),
+                                ..
+                            }) => {
+                                let sbf = sh_sbf_map.get(&sh).expect("already inserted");
+                                statuses.insert(sbf, status);
+                            }
+                            Response::SHGetHistory(SHGetHistoryResponse { history, .. }) => {
+                                for tx in history {
+                                    let HistoryResult { txid, height, .. } = tx;
+                                    txids.insert(txid, height);
+                                    txid_to_get.push(txid);
+                                }
+                            }
+                            Response::TxGet(TxGetResponse {
+                                result: TxGetResult::Raw(raw_tx),
+                                ..
+                            }) => {
+                                let tx: Transaction =
+                            // TODO: do not unwrap
+                                    consensus::encode::deserialize_hex(&raw_tx).unwrap();
+                                txs.push(tx);
+                            }
+                            Response::Error(e) => {
+                                // TODO: do not unwrap
+                                send.send(CoinResponse::Error(e.to_string()).into())
+                                    .unwrap();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    // TODO: do not unwrap
+                    send.send(CoinResponse::Error(e.to_string()).into())
+                        .unwrap();
+                }
+            }
+            if received {
+                continue;
+            }
+            // FIXME: maybe 50ms is WAY too much
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// Try to get a transaction by its txid

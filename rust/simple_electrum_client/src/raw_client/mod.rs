@@ -1,7 +1,7 @@
 pub(crate) mod ssl_client;
 pub(crate) mod tcp_client;
 
-use std::{collections::HashMap, net, thread, time::Duration};
+use std::{collections::HashMap, fmt::Display, net, thread, time::Duration};
 
 use crate::electrum::{
     self,
@@ -30,6 +30,12 @@ pub enum Error {
     SetBlocking,
     SerializeRequest,
     Batch,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl From<electrum::Error> for Error {
