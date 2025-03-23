@@ -60,14 +60,16 @@ pub enum CoinStatus {
 #[derive(Debug, Clone)]
 pub enum CoinRequest {
     Subscribe(Vec<ScriptBuf>),
-    Txs(Vec<ScriptBuf>),
+    History(Vec<ScriptBuf>),
+    Txs(Vec<Txid>),
     Stop,
 }
 
 #[derive(Debug, Clone)]
 pub enum CoinResponse {
     Status(BTreeMap<ScriptBuf, Option<String>>),
-    Txs(Vec<(Transaction, u64 /* block_height */)>),
+    History(BTreeMap<ScriptBuf, Vec<(Txid, u64 /* height */)>>),
+    Txs(Vec<Transaction>),
     Stopped,
     Error(String),
 }
@@ -156,7 +158,8 @@ impl Client {
         RQ: Into<CoinRequest> + Send + 'static,
         RS: From<CoinResponse> + Send + 'static,
     {
-        let mut txids = BTreeMap::new();
+        // TODO: this need to be cleanup to drop request that have been responded
+        let mut reqid_spk_map = BTreeMap::new();
         let mut watched_spks_sh = BTreeMap::<usize /* request_id */, ScriptHash>::new();
         let mut sh_sbf_map = BTreeMap::<ScriptHash, ScriptBuf>::new();
 
@@ -168,25 +171,36 @@ impl Client {
                     received = true;
                     let rq: CoinRequest = rq.into();
                     match rq {
-                        CoinRequest::Subscribe(sbfs) => {
+                        CoinRequest::Subscribe(spks) => {
                             let mut batch = vec![];
-                            for sbf in sbfs {
-                                let sub = Request::subscribe_sh(&sbf);
+                            for spk in spks {
+                                let sub = Request::subscribe_sh(&spk);
                                 let id = self.register(sub.clone());
-                                let sh = ScriptHash::new(&sbf);
+                                let sh = ScriptHash::new(&spk);
                                 watched_spks_sh.insert(id, sh);
-                                sh_sbf_map.insert(sh, sbf);
+                                sh_sbf_map.insert(sh, spk);
                                 batch.push(sub);
                             }
                             // TODO: do not unwrap
                             self.inner.try_send_batch(batch.iter().collect()).unwrap();
                         }
-                        CoinRequest::Txs(sbfs) => {
+                        CoinRequest::History(sbfs) => {
                             let mut batch = vec![];
-                            for sbf in sbfs {
-                                let history = Request::sh_get_history(&sbf);
-                                self.register(history.clone());
+                            for spk in sbfs {
+                                let history = Request::sh_get_history(&spk);
+                                let id = self.register(history.clone());
+                                reqid_spk_map.insert(id, spk);
                                 batch.push(history);
+                            }
+                            // TODO: do not unwrap
+                            self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                        }
+                        CoinRequest::Txs(txids) => {
+                            let mut batch = vec![];
+                            for txid in txids {
+                                let tx = Request::tx_get(txid);
+                                self.register(tx.clone());
+                                batch.push(tx);
                             }
                             // TODO: do not unwrap
                             self.inner.try_send_batch(batch.iter().collect()).unwrap();
@@ -214,7 +228,8 @@ impl Client {
                     received = true;
                     let mut statuses = BTreeMap::new();
                     let mut txs = Vec::new();
-                    let mut txid_to_get = Vec::new();
+                    // let mut txid_to_get = Vec::new();
+                    let mut histories = BTreeMap::new();
                     for r in r {
                         match r {
                             Response::SHSubscribe(SHSubscribeResponse { result: status, id }) => {
@@ -229,12 +244,14 @@ impl Client {
                                 let sbf = sh_sbf_map.get(&sh).expect("already inserted");
                                 statuses.insert(sbf.clone(), status);
                             }
-                            Response::SHGetHistory(SHGetHistoryResponse { history, .. }) => {
+                            Response::SHGetHistory(SHGetHistoryResponse { history, id }) => {
+                                let spk = reqid_spk_map.get(&id).expect("already inserted").clone();
+                                let mut spk_hist = vec![];
                                 for tx in history {
                                     let HistoryResult { txid, height, .. } = tx;
-                                    txids.insert(txid, height);
-                                    txid_to_get.push(txid);
+                                    spk_hist.push((txid, height));
                                 }
+                                histories.insert(spk, spk_hist);
                             }
                             Response::TxGet(TxGetResponse {
                                 result: TxGetResult::Raw(raw_tx),
@@ -253,14 +270,9 @@ impl Client {
                             _ => {}
                         }
                     }
-                    if !txid_to_get.is_empty() {
-                        let mut batch = Vec::new();
-                        for txid in txid_to_get {
-                            let req = Request::tx_get(txid);
-                            self.register(req.clone());
-                            batch.push(req);
-                        }
-                        self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                    if !histories.is_empty() {
+                        let rsp = CoinResponse::History(histories);
+                        send.send(rsp.into()).unwrap();
                     }
                     if !statuses.is_empty() {
                         let rsp = CoinResponse::Status(statuses);
@@ -268,12 +280,7 @@ impl Client {
                     }
                     // let mut txs = Vec::new();
                     if !txs.is_empty() {
-                        let mut batch = Vec::new();
-                        for tx in txs {
-                            let height = txids.get(&tx.compute_txid()).expect("already inserted");
-                            batch.push((tx, *height));
-                        }
-                        let rsp = CoinResponse::Txs(batch);
+                        let rsp = CoinResponse::Txs(txs);
                         send.send(rsp.into()).unwrap();
                     }
                 }
