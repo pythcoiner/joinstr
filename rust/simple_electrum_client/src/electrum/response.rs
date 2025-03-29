@@ -361,7 +361,10 @@ pub struct SHGetBalanceResponse {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct HistoryResult {
-    pub height: u64,
+    // NOTE: as mempool txs are appended at the end of the response:
+    //  height for mempool txs => 0 if all inputs are confirmed, and -1 otherwise
+    //  height for confirmed txs => block height
+    pub height: i128,
     #[serde(rename = "tx_hash")]
     pub txid: Txid,
     pub fee: Option<usize>,

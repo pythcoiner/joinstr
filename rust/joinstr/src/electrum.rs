@@ -68,7 +68,7 @@ pub enum CoinRequest {
 #[derive(Debug, Clone)]
 pub enum CoinResponse {
     Status(BTreeMap<ScriptBuf, Option<String>>),
-    History(BTreeMap<ScriptBuf, Vec<(Txid, u64 /* height */)>>),
+    History(BTreeMap<ScriptBuf, Vec<(Txid, Option<u64> /* height */)>>),
     Txs(Vec<Transaction>),
     Stopped,
     Error(String),
@@ -249,6 +249,11 @@ impl Client {
                                 let mut spk_hist = vec![];
                                 for tx in history {
                                     let HistoryResult { txid, height, .. } = tx;
+                                    let height = if height < 1 {
+                                        None
+                                    } else {
+                                        Some(height as u64)
+                                    };
                                     spk_hist.push((txid, height));
                                 }
                                 histories.insert(spk, spk_hist);
