@@ -165,7 +165,7 @@ impl Client {
 
         loop {
             let mut received = false;
-            // Handle requests
+            // Handle requests from consumer
             match recv.try_recv() {
                 Ok(rq) => {
                     log::debug!("Client::listen_txs() recv request: {rq:#?}");
@@ -223,7 +223,7 @@ impl Client {
                     }
                 }
             }
-            // Handle responses
+            // Handle responses from electrum server
             match self.inner.try_recv(&self.index) {
                 Ok(Some(r)) => {
                     log::debug!("Client::listen_txs() from electrum: {r:#?}");
