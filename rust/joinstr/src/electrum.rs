@@ -15,7 +15,7 @@ use simple_electrum_client::{
 use simple_nostr_client::nostr::bitcoin::consensus::encode::serialize_hex;
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Display,
+    fmt::{Debug, Display},
     sync::mpsc,
     thread::{self, sleep},
     time::Duration,
@@ -143,8 +143,8 @@ impl Client {
 
     pub fn listen<RQ, RS>(self) -> (mpsc::Sender<RQ>, mpsc::Receiver<RS>)
     where
-        RQ: Into<CoinRequest> + Send + 'static,
-        RS: From<CoinResponse> + Send + 'static,
+        RQ: Into<CoinRequest> + Debug + Send + 'static,
+        RS: From<CoinResponse> + Debug + Send + 'static,
     {
         let (sender, request) = mpsc::channel();
         let (response, receiver) = mpsc::channel();
@@ -155,9 +155,10 @@ impl Client {
 
     fn listen_txs<RQ, RS>(mut self, send: mpsc::Sender<RS>, recv: mpsc::Receiver<RQ>)
     where
-        RQ: Into<CoinRequest> + Send + 'static,
-        RS: From<CoinResponse> + Send + 'static,
+        RQ: Into<CoinRequest> + Debug + Send + 'static,
+        RS: From<CoinResponse> + Debug + Send + 'static,
     {
+        log::debug!("Client::listen_txs()");
         // TODO: this need to be cleanup to drop request that have been responded
         let mut reqid_spk_map = BTreeMap::new();
         let mut watched_spks_sh = BTreeMap::<usize /* request_id */, ScriptHash>::new();
@@ -168,6 +169,7 @@ impl Client {
             // Handle requests
             match recv.try_recv() {
                 Ok(rq) => {
+                    log::debug!("Client::listen_txs() recv request: {rq:#?}");
                     received = true;
                     let rq: CoinRequest = rq.into();
                     match rq {
@@ -225,6 +227,7 @@ impl Client {
             // Handle responses
             match self.inner.try_recv(&self.index) {
                 Ok(Some(r)) => {
+                    log::debug!("Client::listen_txs() from electrum: {r:#?}");
                     received = true;
                     let mut statuses = BTreeMap::new();
                     let mut txs = Vec::new();
@@ -277,15 +280,18 @@ impl Client {
                     }
                     if !histories.is_empty() {
                         let rsp = CoinResponse::History(histories);
+                        log::debug!("Client::listen_txs() send response: {rsp:#?}");
                         send.send(rsp.into()).unwrap();
                     }
                     if !statuses.is_empty() {
                         let rsp = CoinResponse::Status(statuses);
+                        log::debug!("Client::listen_txs() send response: {rsp:#?}");
                         send.send(rsp.into()).unwrap();
                     }
                     // let mut txs = Vec::new();
                     if !txs.is_empty() {
                         let rsp = CoinResponse::Txs(txs);
+                        log::debug!("Client::listen_txs() send response: {rsp:#?}");
                         send.send(rsp.into()).unwrap();
                     }
                 }
