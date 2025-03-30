@@ -40,6 +40,36 @@ impl From<Response> for Vec<Response> {
     }
 }
 
+impl Response {
+    pub fn id(&self) -> Option<usize> {
+        match self {
+            Response::Ping(PingResponse { id, .. }) => Some(*id),
+            Response::Banner(BannerResponse { id, .. }) => Some(*id),
+            Response::Header(HeaderResponse { id, .. }) => Some(*id),
+            Response::Headers(HeadersResponse { id, .. }) => Some(*id),
+            Response::Version(VersionResponse { id, .. }) => Some(*id),
+            Response::TxGet(TxGetResponse { id, .. }) => Some(*id),
+            Response::SHSubscribe(SHSubscribeResponse { id, .. }) => Some(*id),
+            Response::SHUnsubscribe(SHUnsubscribeResponse { id, .. }) => Some(*id),
+            Response::SHGetBalance(SHGetBalanceResponse { id, .. }) => Some(*id),
+            Response::SHGetHistory(SHGetHistoryResponse { id, .. }) => Some(*id),
+            Response::SHGetMempool(SHGetMempoolResponse { id, .. }) => Some(*id),
+            Response::SHListUnspent(SHListUnspentResponse { id, .. }) => Some(*id),
+            Response::Error(ErrorResponse { id, .. }) => Some(*id),
+            Response::Features(FeaturesResponse { id, .. }) => Some(*id),
+            Response::TxBroadcast(TxBroadcastResponse { id, .. }) => Some(*id),
+            Response::Donation(DonationResponse { id, .. }) => Some(*id),
+            Response::EstimateFee(EstimateFeeResponse { id, .. }) => Some(*id),
+            Response::FeeHistogram(FeeHistogramResponse { id, .. }) => Some(*id),
+            Response::RelayFee(RelayFeeResponse { id, .. }) => Some(*id),
+            Response::TxGetMerkle(TxGetMerkleResponse { id, .. }) => Some(*id),
+            Response::TxFromposition(TxFromPositionResponse { id, .. }) => Some(*id),
+            Response::ListPeers(ListPeersResponse { id, .. }) => Some(*id),
+            _ => None,
+        }
+    }
+}
+
 pub struct ResponseBatch {
     pub batch: Vec<Response>,
 }
@@ -595,7 +625,7 @@ mod tests {
 
         let response = r#"[{"id":14,"jsonrpc":"2.0","result":"1c8606707de065bef7474d719b76fb41cdff0090fffb78ca6b640c66ba9a9542"},{"id":15,"jsonrpc":"2.0","result":null},{"id":16,"jsonrpc":"2.0","result":null},{"id":17,"jsonrpc":"2.0","result":null},{"id":18,"jsonrpc":"2.0","result":null},{"id":19,"jsonrpc":"2.0","result":null},{"id":20,"jsonrpc":"2.0","result":null},{"id":21,"jsonrpc":"2.0","result":null},{"id":22,"jsonrpc":"2.0","result":null},{"id":23,"jsonrpc":"2.0","result":null},{"id":24,"jsonrpc":"2.0","result":null},{"id":25,"jsonrpc":"2.0","result":null},{"id":26,"jsonrpc":"2.0","result":null},{"id":27,"jsonrpc":"2.0","result":null},{"id":28,"jsonrpc":"2.0","result":null},{"id":29,"jsonrpc":"2.0","result":null},{"id":30,"jsonrpc":"2.0","result":null},{"id":31,"jsonrpc":"2.0","result":null},{"id":32,"jsonrpc":"2.0","result":null},{"id":33,"jsonrpc":"2.0","result":null},{"id":34,"jsonrpc":"2.0","result":null}]"#;
 
-        let batch = ResponseBatch::from_str(response, &index).unwrap();
+        let batch = ResponseBatch::from_str(response, &index).unwrap().unwrap();
         assert_eq!(batch.batch.len(), 21);
         let resp = &batch.batch[5];
         if let Response::SHSubscribe(SHSubscribeResponse { id, result }) = resp {

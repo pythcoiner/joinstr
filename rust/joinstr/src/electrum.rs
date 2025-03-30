@@ -237,65 +237,82 @@ impl Client {
         let mut watched_spks_sh = BTreeMap::<usize /* request_id */, ScriptHash>::new();
         let mut sh_sbf_map = BTreeMap::<ScriptHash, ScriptBuf>::new();
 
+        let mut last_request = None;
+
+        fn responses_matches_requests(req: &[Request], resp: &[Response]) -> bool {
+            req.iter()
+                .all(|rq| resp.iter().any(|response| response.id() == Some(rq.id)))
+        }
+
         loop {
             let mut received = false;
             // Handle requests from consumer
-            match recv.try_recv() {
-                Ok(rq) => {
-                    log::debug!("Client::listen_txs() recv request: {rq:#?}");
-                    received = true;
-                    let rq: CoinRequest = rq.into();
-                    match rq {
-                        CoinRequest::Subscribe(spks) => {
-                            let mut batch = vec![];
-                            for spk in spks {
-                                let mut sub = Request::subscribe_sh(&spk);
-                                let id = self.register(&mut sub);
-                                log::debug!("Client::listen_txs() subscribe request: {sub:?}");
-                                let sh = ScriptHash::new(&spk);
-                                watched_spks_sh.insert(id, sh);
-                                sh_sbf_map.insert(sh, spk);
-                                batch.push(sub);
+            // NOTE: some server implementation (electrs for instance) will answer by an empty
+            // response if it receive a request while it has not yes sent its previous response
+            // so we need to make sure to not send a request before receiving the previous response
+            if last_request.is_none() {
+                match recv.try_recv() {
+                    Ok(rq) => {
+                        log::debug!("Client::listen_txs() recv request: {rq:#?}");
+                        received = true;
+                        let rq: CoinRequest = rq.into();
+                        match rq {
+                            CoinRequest::Subscribe(spks) => {
+                                let mut batch = vec![];
+                                for spk in spks {
+                                    let mut sub = Request::subscribe_sh(&spk);
+                                    let id = self.register(&mut sub);
+                                    log::debug!("Client::listen_txs() subscribe request: {sub:?}");
+                                    let sh = ScriptHash::new(&spk);
+                                    watched_spks_sh.insert(id, sh);
+                                    sh_sbf_map.insert(sh, spk);
+                                    batch.push(sub);
+                                }
+                                last_request = Some(batch.clone());
+                                // TODO: do not unwrap
+                                self.inner.try_send_batch(batch.iter().collect()).unwrap();
                             }
-                            // TODO: do not unwrap
-                            self.inner.try_send_batch(batch.iter().collect()).unwrap();
-                        }
-                        CoinRequest::History(sbfs) => {
-                            let mut batch = vec![];
-                            for spk in sbfs {
-                                let mut history = Request::sh_get_history(&spk);
-                                let id = self.register(&mut history);
-                                log::debug!("Client::listen_txs() history request: {history:?}");
-                                reqid_spk_map.insert(id, spk);
-                                batch.push(history);
+                            CoinRequest::History(sbfs) => {
+                                let mut batch = vec![];
+                                for spk in sbfs {
+                                    let mut history = Request::sh_get_history(&spk);
+                                    let id = self.register(&mut history);
+                                    log::debug!(
+                                        "Client::listen_txs() history request: {history:?}"
+                                    );
+                                    reqid_spk_map.insert(id, spk);
+                                    batch.push(history);
+                                }
+                                last_request = Some(batch.clone());
+                                // TODO: do not unwrap
+                                self.inner.try_send_batch(batch.iter().collect()).unwrap();
                             }
-                            // TODO: do not unwrap
-                            self.inner.try_send_batch(batch.iter().collect()).unwrap();
-                        }
-                        CoinRequest::Txs(txids) => {
-                            let mut batch = vec![];
-                            for txid in txids {
-                                let mut tx = Request::tx_get(txid);
-                                self.register(&mut tx);
-                                log::debug!("Client::listen_txs() txs request: {tx:?}");
-                                batch.push(tx);
+                            CoinRequest::Txs(txids) => {
+                                let mut batch = vec![];
+                                for txid in txids {
+                                    let mut tx = Request::tx_get(txid);
+                                    self.register(&mut tx);
+                                    log::debug!("Client::listen_txs() txs request: {tx:?}");
+                                    batch.push(tx);
+                                }
+                                last_request = Some(batch.clone());
+                                // TODO: do not unwrap
+                                self.inner.try_send_batch(batch.iter().collect()).unwrap();
                             }
-                            // TODO: do not unwrap
-                            self.inner.try_send_batch(batch.iter().collect()).unwrap();
-                        }
-                        CoinRequest::Stop => {
-                            send.send(CoinResponse::Stopped.into()).unwrap();
-                            return;
-                        }
-                    };
-                }
-                Err(e) => {
-                    match e {
-                        mpsc::TryRecvError::Empty => {}
-                        mpsc::TryRecvError::Disconnected => {
-                            // NOTE: caller has dropped the channel
-                            // == Close request
-                            return;
+                            CoinRequest::Stop => {
+                                send.send(CoinResponse::Stopped.into()).unwrap();
+                                return;
+                            }
+                        };
+                    }
+                    Err(e) => {
+                        match e {
+                            mpsc::TryRecvError::Empty => {}
+                            mpsc::TryRecvError::Disconnected => {
+                                // NOTE: caller has dropped the channel
+                                // == Close request
+                                return;
+                            }
                         }
                     }
                 }
@@ -303,6 +320,15 @@ impl Client {
             // Handle responses from electrum server
             match self.inner.try_recv(&self.index) {
                 Ok(Some(r)) => {
+                    let r_match = if let Some(req) = &last_request {
+                        responses_matches_requests(req, &r)
+                    } else {
+                        false
+                    };
+                    if r_match {
+                        last_request = None;
+                    }
+
                     log::debug!("Client::listen_txs() from electrum: {r:#?}");
                     received = true;
                     let mut statuses = BTreeMap::new();
