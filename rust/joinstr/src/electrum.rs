@@ -57,7 +57,22 @@ pub enum CoinStatus {
     Spend,
 }
 
-#[derive(Debug, Clone)]
+pub fn short_hash(s: &ScriptBuf) -> String {
+    let s = ScriptHash::new(s).to_string();
+    short_string(s)
+}
+
+pub fn short_string(s: String) -> String {
+    let head = 4;
+    let tail = 4;
+    if s.len() <= head + tail + 2 {
+        // No need to truncate if string is short
+        return s.to_string();
+    }
+    format!("{}..{}", &s[..head], &s[s.len() - tail..])
+}
+
+#[derive(Clone)]
 pub enum CoinRequest {
     Subscribe(Vec<ScriptBuf>),
     History(Vec<ScriptBuf>),
@@ -65,13 +80,72 @@ pub enum CoinRequest {
     Stop,
 }
 
-#[derive(Debug, Clone)]
+impl Debug for CoinRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Subscribe(vec) => {
+                let hashes: Vec<_> = vec.iter().map(short_hash).collect();
+                f.debug_tuple("Subscribe").field(&hashes).finish()
+            }
+            Self::History(vec) => {
+                let hashes: Vec<_> = vec.iter().map(short_hash).collect();
+                f.debug_tuple("History").field(&hashes).finish()
+            }
+            Self::Txs(arg0) => f.debug_tuple("Txs").field(arg0).finish(),
+            Self::Stop => write!(f, "Stop"),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub enum CoinResponse {
     Status(BTreeMap<ScriptBuf, Option<String>>),
     History(BTreeMap<ScriptBuf, Vec<(Txid, Option<u64> /* height */)>>),
     Txs(Vec<Transaction>),
     Stopped,
     Error(String),
+}
+
+impl Debug for CoinResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Txs(vec) => {
+                let txids: Vec<_> = vec.iter().map(|tx| tx.compute_txid()).collect();
+                f.debug_tuple("Txs").field(&txids).finish()
+            }
+            Self::Status(map) => {
+                let statuses: Vec<_> = map
+                    .iter()
+                    .map(|(spk, status)| {
+                        format!(
+                            "{} => {:?}",
+                            short_hash(spk),
+                            status.as_ref().map(|st| short_string(st.to_string()))
+                        )
+                    })
+                    .collect();
+                f.debug_tuple("Status").field(&statuses).finish()
+            }
+            Self::History(map) => {
+                let map: Vec<_> = map
+                    .iter()
+                    .map(|(spk, v)| {
+                        let conf: Vec<_> =
+                            v.iter().filter(|(_, height)| height.is_some()).collect();
+                        format!(
+                            "{} => conf: {}, total: {}",
+                            short_hash(spk),
+                            conf.len(),
+                            v.len()
+                        )
+                    })
+                    .collect();
+                f.debug_tuple("History").field(&map).finish()
+            }
+            Self::Stopped => write!(f, "Stopped"),
+            Self::Error(e) => write!(f, "Error({})", e),
+        }
+    }
 }
 
 #[derive(Debug)]
