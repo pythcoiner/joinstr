@@ -373,6 +373,7 @@ impl Client {
                 }
                 Ok(None) => {}
                 Err(e) => {
+                    log::error!("Client::listen_txs() error receiving response: {e}");
                     // TODO: do not unwrap
                     send.send(CoinResponse::Error(e.to_string()).into())
                         .unwrap();
