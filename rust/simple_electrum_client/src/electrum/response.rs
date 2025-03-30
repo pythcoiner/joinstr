@@ -49,8 +49,8 @@ pub fn parse_str_response(
     index: &HashMap<usize, Request>,
 ) -> Result<Vec<Response>, Error> {
     // first we check if it's a batch
-    let batch = ResponseBatch::from_str(raw, index);
-    if let Ok(b) = batch {
+    let batch = ResponseBatch::from_str(raw, index)?;
+    if let Some(b) = batch {
         return Ok(b.batch);
     }
     // then try to parse a single Response
@@ -58,17 +58,18 @@ pub fn parse_str_response(
 }
 
 impl ResponseBatch {
-    pub fn from_str(s: &str, index: &HashMap<usize, Request>) -> Result<Self, Error> {
+    pub fn from_str(s: &str, index: &HashMap<usize, Request>) -> Result<Option<Self>, Error> {
         let parsed: Result<Vec<Value>, _> = serde_json::from_str(s);
         if let Ok(parsed) = parsed {
             let mut batch = Vec::<Response>::new();
-            for request in parsed {
-                let raw = serde_json::to_string(&request).map_err(|_| Error::BatchParsing)?;
+            for response in parsed {
+                let raw =
+                    serde_json::to_string(&response).expect("parsing Value to string do not fail!");
                 batch.push(Response::try_parse(&raw, index)?);
             }
-            Ok(ResponseBatch { batch })
+            Ok(Some(ResponseBatch { batch }))
         } else {
-            Err(Error::BatchParsing)
+            Ok(None)
         }
     }
 }
