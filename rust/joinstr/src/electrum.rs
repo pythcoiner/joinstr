@@ -129,9 +129,8 @@ impl Client {
 
     /// Generate a new request id
     fn id(&mut self) -> usize {
-        let id = self.last_id;
         self.last_id = self.last_id.wrapping_add(1);
-        id
+        self.last_id
     }
 
     fn register(&mut self, mut req: Request) -> usize {
