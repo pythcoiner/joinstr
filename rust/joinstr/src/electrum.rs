@@ -133,10 +133,10 @@ impl Client {
         self.last_id
     }
 
-    fn register(&mut self, mut req: Request) -> usize {
+    fn register(&mut self, req: &mut Request) -> usize {
         let id = self.id();
         req.id = id;
-        self.index.insert(req.id, req);
+        self.index.insert(req.id, req.clone());
         id
     }
 
@@ -175,8 +175,9 @@ impl Client {
                         CoinRequest::Subscribe(spks) => {
                             let mut batch = vec![];
                             for spk in spks {
-                                let sub = Request::subscribe_sh(&spk);
-                                let id = self.register(sub.clone());
+                                let mut sub = Request::subscribe_sh(&spk);
+                                let id = self.register(&mut sub);
+                                log::debug!("Client::listen_txs() subscribe id: {sub:?}");
                                 let sh = ScriptHash::new(&spk);
                                 watched_spks_sh.insert(id, sh);
                                 sh_sbf_map.insert(sh, spk);
@@ -188,8 +189,8 @@ impl Client {
                         CoinRequest::History(sbfs) => {
                             let mut batch = vec![];
                             for spk in sbfs {
-                                let history = Request::sh_get_history(&spk);
-                                let id = self.register(history.clone());
+                                let mut history = Request::sh_get_history(&spk);
+                                let id = self.register(&mut history);
                                 reqid_spk_map.insert(id, spk);
                                 batch.push(history);
                             }
@@ -199,8 +200,8 @@ impl Client {
                         CoinRequest::Txs(txids) => {
                             let mut batch = vec![];
                             for txid in txids {
-                                let tx = Request::tx_get(txid);
-                                self.register(tx.clone());
+                                let mut tx = Request::tx_get(txid);
+                                self.register(&mut tx);
                                 batch.push(tx);
                             }
                             // TODO: do not unwrap
