@@ -251,7 +251,7 @@ impl Client {
                             for spk in spks {
                                 let mut sub = Request::subscribe_sh(&spk);
                                 let id = self.register(&mut sub);
-                                log::debug!("Client::listen_txs() subscribe id: {sub:?}");
+                                log::debug!("Client::listen_txs() subscribe request: {sub:?}");
                                 let sh = ScriptHash::new(&spk);
                                 watched_spks_sh.insert(id, sh);
                                 sh_sbf_map.insert(sh, spk);
@@ -265,6 +265,7 @@ impl Client {
                             for spk in sbfs {
                                 let mut history = Request::sh_get_history(&spk);
                                 let id = self.register(&mut history);
+                                log::debug!("Client::listen_txs() history request: {history:?}");
                                 reqid_spk_map.insert(id, spk);
                                 batch.push(history);
                             }
@@ -276,6 +277,7 @@ impl Client {
                             for txid in txids {
                                 let mut tx = Request::tx_get(txid);
                                 self.register(&mut tx);
+                                log::debug!("Client::listen_txs() txs request: {tx:?}");
                                 batch.push(tx);
                             }
                             // TODO: do not unwrap
