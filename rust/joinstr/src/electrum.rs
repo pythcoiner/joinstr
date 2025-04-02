@@ -284,9 +284,11 @@ impl Client {
                                     sh_sbf_map.insert(sh, spk);
                                     batch.push(sub);
                                 }
-                                last_request = Some(batch.clone());
-                                // TODO: do not unwrap
-                                self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                                if !batch.is_empty() {
+                                    last_request = Some(batch.clone());
+                                    // TODO: do not unwrap
+                                    self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                                }
                             }
                             CoinRequest::History(sbfs) => {
                                 let mut batch = vec![];
@@ -299,9 +301,11 @@ impl Client {
                                     reqid_spk_map.insert(id, spk);
                                     batch.push(history);
                                 }
-                                last_request = Some(batch.clone());
-                                // TODO: do not unwrap
-                                self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                                if !batch.is_empty() {
+                                    last_request = Some(batch.clone());
+                                    // TODO: do not unwrap
+                                    self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                                }
                             }
                             CoinRequest::Txs(txids) => {
                                 let mut batch = vec![];
@@ -311,9 +315,11 @@ impl Client {
                                     log::debug!("Client::listen_txs() txs request: {tx:?}");
                                     batch.push(tx);
                                 }
-                                last_request = Some(batch.clone());
-                                // TODO: do not unwrap
-                                self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                                if !batch.is_empty() {
+                                    last_request = Some(batch.clone());
+                                    // TODO: do not unwrap
+                                    self.inner.try_send_batch(batch.iter().collect()).unwrap();
+                                }
                             }
                             CoinRequest::Stop => {
                                 send.send(CoinResponse::Stopped.into()).unwrap();
