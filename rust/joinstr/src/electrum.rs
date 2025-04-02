@@ -174,13 +174,14 @@ impl Client {
     /// * `port` - port of the electrum server
     pub fn new(address: &str, port: u16) -> Result<Self, Error> {
         let ssl = address.starts_with("ssl://");
-        let mut inner = RawClient::new_ssl_maybe(address, port, ssl);
+        let address = address.to_string().replace("ssl://", "");
+        let mut inner = RawClient::new_ssl_maybe(&address, port, ssl);
         inner.try_connect()?;
         Ok(Client {
             inner,
             index: HashMap::new(),
             last_id: 0,
-            url: address.into(),
+            url: address,
             port,
         })
     }
@@ -193,13 +194,14 @@ impl Client {
     /// * `port` - port of the electrum server
     pub fn new_local(address: &str, port: u16) -> Result<Self, Error> {
         let ssl = address.starts_with("ssl://");
-        let mut inner = RawClient::new_ssl_maybe(address, port, ssl).verif_certificate(false);
+        let address = address.to_string().replace("ssl://", "");
+        let mut inner = RawClient::new_ssl_maybe(&address, port, ssl).verif_certificate(false);
         inner.try_connect()?;
         Ok(Client {
             inner,
             index: HashMap::new(),
             last_id: 0,
-            url: address.into(),
+            url: address,
             port,
         })
     }
