@@ -285,6 +285,10 @@ impl Client {
                                     batch.push(sub);
                                 }
                                 if !batch.is_empty() {
+                                    log::debug!(
+                                        "Client::listen_txs() last_request = {:?}",
+                                        batch.len()
+                                    );
                                     last_request = Some(batch.clone());
                                     // TODO: do not unwrap
                                     self.inner.try_send_batch(batch.iter().collect()).unwrap();
@@ -302,6 +306,10 @@ impl Client {
                                     batch.push(history);
                                 }
                                 if !batch.is_empty() {
+                                    log::debug!(
+                                        "Client::listen_txs() last_request = {:?}",
+                                        batch.len()
+                                    );
                                     last_request = Some(batch.clone());
                                     // TODO: do not unwrap
                                     self.inner.try_send_batch(batch.iter().collect()).unwrap();
@@ -316,6 +324,10 @@ impl Client {
                                     batch.push(tx);
                                 }
                                 if !batch.is_empty() {
+                                    log::debug!(
+                                        "Client::listen_txs() last_request = {:?}",
+                                        batch.len()
+                                    );
                                     last_request = Some(batch.clone());
                                     // TODO: do not unwrap
                                     self.inner.try_send_batch(batch.iter().collect()).unwrap();
@@ -349,6 +361,12 @@ impl Client {
                     };
                     if r_match {
                         last_request = None;
+                    } else if let Some(last_req) = &last_request {
+                        log::debug!("Client::listen_txs() request not match resend last request");
+                        thread::sleep(Duration::from_millis(100));
+                        self.inner
+                            .try_send_batch(last_req.iter().collect())
+                            .unwrap();
                     }
 
                     log::debug!("Client::listen_txs() from electrum: {r:#?}");
