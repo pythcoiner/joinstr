@@ -16,10 +16,7 @@ use simple_nostr_client::nostr::bitcoin::consensus::encode::serialize_hex;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::{Debug, Display},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
-    },
+    sync::mpsc,
     thread::{self, sleep},
     time::Duration,
 };
@@ -219,26 +216,20 @@ impl Client {
         id
     }
 
-    pub fn listen<RQ, RS>(self) -> (mpsc::Sender<RQ>, mpsc::Receiver<RS>, Arc<AtomicBool>)
+    pub fn listen<RQ, RS>(self) -> (mpsc::Sender<RQ>, mpsc::Receiver<RS>)
     where
         RQ: Into<CoinRequest> + Debug + Send + 'static,
         RS: From<CoinResponse> + Debug + Send + 'static,
     {
-        let stop = Arc::new(AtomicBool::new(false));
         let (sender, request) = mpsc::channel();
         let (response, receiver) = mpsc::channel();
-        let cloned_stop = stop.clone();
-        thread::spawn(move || self.listen_txs(response, request, stop));
+        thread::spawn(move || self.listen_txs(response, request));
 
-        (sender, receiver, cloned_stop)
+        (sender, receiver)
     }
 
-    fn listen_txs<RQ, RS>(
-        mut self,
-        send: mpsc::Sender<RS>,
-        recv: mpsc::Receiver<RQ>,
-        stop: Arc<AtomicBool>,
-    ) where
+    fn listen_txs<RQ, RS>(mut self, send: mpsc::Sender<RS>, recv: mpsc::Receiver<RQ>)
+    where
         RQ: Into<CoinRequest> + Debug + Send + 'static,
         RS: From<CoinResponse> + Debug + Send + 'static,
     {
@@ -256,11 +247,6 @@ impl Client {
         }
 
         loop {
-            // consumer ask to stop
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-
             let mut received = false;
             // Handle requests from consumer
             // NOTE: some server implementation (electrs for instance) will answer by an empty
