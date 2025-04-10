@@ -354,6 +354,7 @@ impl Client {
             // Handle responses from electrum server
             match self.inner.try_recv(&self.index) {
                 Ok(Some(r)) => {
+                    log::debug!("Client::listen_txs() from electrum: {r:#?}");
                     let r_match = if let Some(req) = &last_request {
                         responses_matches_requests(req, &r)
                     } else {
@@ -369,7 +370,6 @@ impl Client {
                             .unwrap();
                     }
 
-                    log::debug!("Client::listen_txs() from electrum: {r:#?}");
                     received = true;
                     let mut statuses = BTreeMap::new();
                     let mut txs = Vec::new();
