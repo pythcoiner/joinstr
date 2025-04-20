@@ -118,6 +118,7 @@ impl Response {
     }
 
     pub fn try_parse(raw: &str, index: &HashMap<usize, Request>) -> Result<Response, Error> {
+        log::debug!("Response::try_parse() {raw}");
         // first we handle the case of a single error
         let error: Result<ErrorResponse, _> = serde_json::from_str(raw);
         if let Ok(e) = error {
