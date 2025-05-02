@@ -278,8 +278,17 @@ impl Client {
                                         batch.len()
                                     );
                                     last_request = Some(batch.clone());
-                                    // TODO: do not unwrap
-                                    self.inner.try_send_batch(batch.iter().collect()).unwrap();
+
+                                    let mut retry = 0usize;
+                                    while let Err(e) =
+                                        self.inner.try_send_batch(batch.iter().collect())
+                                    {
+                                        retry += 1;
+                                        if retry > 10 {
+                                            send.send(CoinResponse::Error(format!("electrum::Client::listen_txs() Fail to send bacth request: {:?}", e)).into()).expect("caller dropped");
+                                        }
+                                        thread::sleep(Duration::from_millis(50));
+                                    }
                                 }
                             }
                             CoinRequest::History(sbfs) => {
@@ -299,8 +308,17 @@ impl Client {
                                         batch.len()
                                     );
                                     last_request = Some(batch.clone());
-                                    // TODO: do not unwrap
-                                    self.inner.try_send_batch(batch.iter().collect()).unwrap();
+
+                                    let mut retry = 0usize;
+                                    while let Err(e) =
+                                        self.inner.try_send_batch(batch.iter().collect())
+                                    {
+                                        retry += 1;
+                                        if retry > 10 {
+                                            send.send(CoinResponse::Error(format!("electrum::Client::listen_txs() Fail to send bacth request: {:?}", e)).into()).expect("caller dropped");
+                                        }
+                                        thread::sleep(Duration::from_millis(50));
+                                    }
                                 }
                             }
                             CoinRequest::Txs(txids) => {
@@ -317,8 +335,17 @@ impl Client {
                                         batch.len()
                                     );
                                     last_request = Some(batch.clone());
-                                    // TODO: do not unwrap
-                                    self.inner.try_send_batch(batch.iter().collect()).unwrap();
+
+                                    let mut retry = 0usize;
+                                    while let Err(e) =
+                                        self.inner.try_send_batch(batch.iter().collect())
+                                    {
+                                        retry += 1;
+                                        if retry > 10 {
+                                            send.send(CoinResponse::Error(format!("electrum::Client::listen_txs() Fail to send bacth request: {:?}", e)).into()).expect("caller dropped");
+                                        }
+                                        thread::sleep(Duration::from_millis(50));
+                                    }
                                 }
                             }
                             CoinRequest::Stop => {
