@@ -235,7 +235,6 @@ impl Client {
         RS: From<CoinResponse> + Debug + Send + 'static,
     {
         log::debug!("Client::listen_txs()");
-        // TODO: this need to be cleanup to drop request that have been responded
         let mut reqid_spk_map = BTreeMap::new();
         let mut watched_spks_sh = BTreeMap::<usize /* request_id */, ScriptHash>::new();
         let mut sh_sbf_map = BTreeMap::<ScriptHash, ScriptBuf>::new();
@@ -380,6 +379,7 @@ impl Client {
                             }
                             Response::SHGetHistory(SHGetHistoryResponse { history, id }) => {
                                 let spk = reqid_spk_map.get(&id).expect("already inserted").clone();
+                                reqid_spk_map.remove(&id);
                                 let mut spk_hist = vec![];
                                 for tx in history {
                                     let HistoryResult { txid, height, .. } = tx;
