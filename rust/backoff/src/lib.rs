@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use rand::{Rng, rng};
+use rand::{rng, Rng};
 
 pub struct Backoff {
     current_step: u32,
