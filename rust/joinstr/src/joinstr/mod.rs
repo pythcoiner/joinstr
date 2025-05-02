@@ -1,10 +1,10 @@
 mod error;
+use backoff::Backoff;
 pub use error::Error;
 
 use std::{
     collections::HashSet,
-    thread::sleep,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use miniscript::bitcoin::{Amount, Network};
@@ -595,6 +595,8 @@ impl<'a> Joinstr<'a> {
             .min_peer(payload.peers)
             .fee(fee as usize);
 
+        let mut backoff = Backoff::new_us(WAIT);
+
         // register peers
         while (now() < expired) && !(start_early && peers.len() >= payload.peers) {
             if let Ok(Some(msg)) = self.client.receive_pool_msg() {
@@ -637,7 +639,7 @@ impl<'a> Joinstr<'a> {
                     }
                 }
             } else {
-                sleep(Duration::from_micros(WAIT));
+                backoff.snooze();
             }
         }
 
@@ -650,6 +652,8 @@ impl<'a> Joinstr<'a> {
             coinjoin.add_output(output.clone());
             self.register_output()?;
         }
+
+        let mut backoff = Backoff::new_us(WAIT);
 
         // register ouputs
         let expired = self.end_timeline()?;
@@ -685,7 +689,7 @@ impl<'a> Joinstr<'a> {
                     }
                 }
             } else {
-                sleep(Duration::from_micros(WAIT));
+                backoff.snooze();
             }
         }
 
@@ -810,6 +814,9 @@ impl<'a> Joinstr<'a> {
         if now() > expired {
             return Err(Error::Timeout);
         }
+
+        let mut backoff = Backoff::new_us(WAIT);
+
         while now() < expired && self.coinjoin_as_ref()?.tx.is_none() {
             let msg = self.client.receive_pool_msg();
             if let Ok(Some(msg)) = msg {
@@ -838,7 +845,7 @@ impl<'a> Joinstr<'a> {
                     }
                 }
             } else {
-                sleep(Duration::from_micros(WAIT));
+                backoff.snooze();
             }
         }
         if now() > expired {
@@ -910,6 +917,8 @@ impl<'a> Joinstr<'a> {
             .send_pool_message(&pool_npub, PoolMessage::Join(Some(my_npub)))?;
         let (timeout, _) = self.start_timeline()?;
 
+        let mut backoff = Backoff::new_us(WAIT);
+
         let mut connected = false;
         while now() < timeout {
             if let Some(PoolMessage::Credentials(Credentials { id, key })) =
@@ -938,7 +947,7 @@ impl<'a> Joinstr<'a> {
                     );
                 }
             }
-            sleep(Duration::from_micros(WAIT));
+            backoff.snooze();
         }
         if !connected {
             return Err(Error::PoolConnectionTimeout);

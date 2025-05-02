@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use backoff::Backoff;
 use nostr::{
     event::{Event, EventBuilder, Kind, Tag},
     key::{Keys, PublicKey},
@@ -325,6 +326,8 @@ pub fn listen(
     sender: Sender<RecvMsg>,
     receiver: Receiver<SendMsg>,
 ) {
+    let mut backoff = Backoff::new_us(50);
+
     let mut last_ping = SystemTime::now();
     let mut last_pong = SystemTime::now();
     let mut ping_nonce = 0u8;
@@ -412,7 +415,7 @@ pub fn listen(
         }
 
         if wait {
-            std::thread::sleep(Duration::from_micros(50));
+            backoff.snooze();
         }
     }
 }

@@ -7,6 +7,7 @@ edition = "2021"
 log = { workspace = true }
 nostr = { workspace = true, features = ["nip04"] }
 websocket = { workspace = true, features = ["sync", "sync-ssl"] }
+backoff = { workspace = true }
 
 
 [dev-dependencies]

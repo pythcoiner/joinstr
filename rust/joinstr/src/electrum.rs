@@ -1,3 +1,4 @@
+use backoff::Backoff;
 use bitcoin::{consensus, Address, Amount, ScriptBuf};
 use hex_conservative::FromHex;
 use miniscript::bitcoin::{consensus::Decodable, OutPoint, Script, Transaction, TxOut, Txid};
@@ -246,6 +247,8 @@ impl Client {
                 .all(|rq| resp.iter().any(|response| response.id() == Some(rq.id)))
         }
 
+        let mut backoff = Backoff::new_ms(50);
+
         loop {
             let mut received = false;
             // Handle requests from consumer
@@ -434,8 +437,7 @@ impl Client {
             if received {
                 continue;
             }
-            // FIXME: maybe 50ms is WAY too much
-            thread::sleep(Duration::from_millis(50));
+            backoff.snooze();
         }
     }
 

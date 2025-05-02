@@ -5,7 +5,7 @@ members = [
     "rust/joinstr",
     "rust/simple_nostr_client",
     "rust/simple_electrum_client",
-    "rust/joinstr_wallet",
+    "rust/joinstr_wallet", "rust/backoff",
 ]
 
 [workspace.dependencies]
@@ -19,6 +19,7 @@ hex-conservative = "0.2.1"
 hex_lit = "0.1.1"
 home = "=0.5.9"
 joinstr = { path = "rust/joinstr" }
+backoff = { path = "rust/backoff" }
 libc = "0.2.170"
 log = "0.4.20"
 miniscript = "12.2.0"
@@ -27,7 +28,7 @@ nostr = "0.35.0"
 nostr-sdk = "0.35.0"
 nostrd = { git = "https://github.com/pythcoiner/nostrd.git", branch = "master" }
 openssl = "0.10.66"
-rand = "0.8.5"
+rand = "0.9.1"
 serde = "1.0.218"
 serde_json = "1.0.128"
 simple_electrum_client = { path = "rust/simple_electrum_client" }
