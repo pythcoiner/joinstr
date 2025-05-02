@@ -341,9 +341,11 @@ impl Client {
                                         self.inner.try_send_batch(batch.iter().collect())
                                     {
                                         retry += 1;
-                                        if retry > 10 {
-                                            send.send(CoinResponse::Error(format!("electrum::Client::listen_txs() Fail to send bacth request: {:?}", e)).into()).expect("caller dropped");
-                                        }
+                                        if retry > 10 && send.send(CoinResponse::Error(format!("electrum::Client::listen_txs() Fail to send bacth request: {:?}", e)).into()).is_err() {
+                                        // NOTE: caller has dropped the channel
+                                        // == Close request
+                                        return;
+                                                    }
                                         thread::sleep(Duration::from_millis(50));
                                     }
                                 }
@@ -429,9 +431,14 @@ impl Client {
                                 txs.push(tx);
                             }
                             Response::Error(e) => {
-                                // TODO: do not unwrap
-                                send.send(CoinResponse::Error(e.to_string()).into())
-                                    .unwrap();
+                                if send
+                                    .send(CoinResponse::Error(e.to_string()).into())
+                                    .is_err()
+                                {
+                                    // NOTE: caller has dropped the channel
+                                    // == Close request
+                                    return;
+                                }
                             }
                             _ => {}
                         }
@@ -455,10 +462,14 @@ impl Client {
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    log::error!("Client::listen_txs() error receiving response: {e}");
-                    // TODO: do not unwrap
-                    send.send(CoinResponse::Error(e.to_string()).into())
-                        .unwrap();
+                    if send
+                        .send(CoinResponse::Error(e.to_string()).into())
+                        .is_err()
+                    {
+                        // NOTE: caller has dropped the channel
+                        // == Close request
+                        return;
+                    }
                 }
             }
             if received {
