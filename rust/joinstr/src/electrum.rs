@@ -18,7 +18,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt::{Debug, Display},
     sync::mpsc,
-    thread::{self, sleep},
+    thread::{self},
     time::Duration,
 };
 
@@ -576,7 +576,6 @@ impl Client {
         log::debug!("electrum::Client().broadcast(): {:?}", raw_tx);
         let request = Request::tx_broadcast(raw_tx);
         self.inner.try_send(&request)?;
-        sleep(Duration::from_secs(2));
         let req_id = request.id;
         self.index.insert(request.id, request);
         let resp = match self.inner.recv(&self.index) {
