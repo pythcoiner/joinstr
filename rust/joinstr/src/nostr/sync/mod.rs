@@ -230,7 +230,7 @@ impl NostrClient {
     ///   - the channel is closed
     ///   - the the received event is not a NIP04
     ///   - the event cannot be parsed as a PoolMessage
-    pub fn receive_pool_msg(&mut self) -> Result<Option<PoolMessage>, Error> {
+    pub fn try_receive_pool_msg(&mut self) -> Result<Option<PoolMessage>, Error> {
         Ok(if let Some(event) = self.client()?.try_receive()? {
             PoolMessage::from_str(&event.content).ok().map(|m| {
                 // if the join request does not contain a pubkey to respond to, we respond to

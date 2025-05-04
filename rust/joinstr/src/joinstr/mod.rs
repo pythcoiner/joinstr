@@ -4,6 +4,7 @@ pub use error::Error;
 
 use std::{
     collections::HashSet,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -29,6 +30,11 @@ pub const WAIT: u64 = 50;
 
 #[derive(Debug)]
 pub struct Joinstr<'a> {
+    inner: Arc<Mutex<JoinstrInner<'a>>>,
+}
+
+#[derive(Debug)]
+pub struct JoinstrInner<'a> {
     pub initiator: bool,
     pub client: NostrClient,
     pub pool: Option<Pool>,
@@ -45,7 +51,7 @@ pub struct Joinstr<'a> {
     final_tx: Option<miniscript::bitcoin::Transaction>,
 }
 
-impl Default for Joinstr<'_> {
+impl Default for JoinstrInner<'_> {
     fn default() -> Self {
         Self {
             initiator: false,
@@ -66,7 +72,7 @@ impl Default for Joinstr<'_> {
     }
 }
 
-impl<'a> Joinstr<'a> {
+impl Joinstr<'_> {
     /// Create a new [`Joinstr`] instance
     ///
     /// # Arguments
@@ -82,11 +88,12 @@ impl<'a> Joinstr<'a> {
         let mut client = NostrClient::new(name).relay(relay.clone())?.keys(keys)?;
         client.connect_nostr()?;
         let relays = vec![relay];
-        Ok(Joinstr {
+        let inner = Arc::new(Mutex::new(JoinstrInner {
             client,
             relays,
             ..Default::default()
-        })
+        }));
+        Ok(Joinstr { inner })
     }
 
     /// Create a new [`Joinstr`] instance with a bitcoin backend
@@ -104,9 +111,9 @@ impl<'a> Joinstr<'a> {
         name: &str,
     ) -> Result<Self, Error> {
         let electrum = crate::electrum::Client::new(electrum_server.0, electrum_server.1)?;
-        let mut coord = Self::new(keys, relay, name)?;
-        coord.electrum_client = Some(electrum);
-        Ok(coord)
+        let j = Self::new(keys, relay, name)?;
+        j.inner.lock().expect("poisoned").electrum_client = Some(electrum);
+        Ok(j)
     }
 
     /// Create a new [`Joinstr`] instance that have a `Peer` role, this role means
@@ -158,15 +165,17 @@ impl<'a> Joinstr<'a> {
         };
         // NOTE: we create a randow key to process pool auth
         // FIXME: is the entropy of the key good enough?
-        let mut peer = Self::new(Keys::generate(), relay, name)?
+        let peer = Self::new(Keys::generate(), relay, name)?
             .network(network)
             .denomination(denomination)?
             .fee(fee)?
             .simple_timeout(timeout)?
             .min_peers(peers)?;
-        peer.input = Some(input);
-        peer.output = Some(address);
-        peer.initiator = false;
+        let mut inner = peer.inner.lock().expect("poisoned");
+        inner.input = Some(input);
+        inner.output = Some(address);
+        inner.initiator = false;
+        drop(inner);
         Ok(peer)
     }
 
@@ -193,9 +202,11 @@ impl<'a> Joinstr<'a> {
         name: &str,
     ) -> Result<Self, Error> {
         let electrum = crate::electrum::Client::new(electrum_server.0, electrum_server.1)?;
-        let mut peer = Self::new_peer(relay, pool, input, output, network, name)?;
-        peer.initiator = false;
-        peer.electrum_client = Some(electrum);
+        let peer = Self::new_peer(relay, pool, input, output, network, name)?;
+        let mut inner = peer.inner.lock().expect("poisoned");
+        inner.initiator = false;
+        inner.electrum_client = Some(electrum);
+        drop(inner);
         Ok(peer)
     }
 
@@ -219,48 +230,49 @@ impl<'a> Joinstr<'a> {
         network: Network,
         name: &str,
     ) -> Result<Self, Error> {
-        let mut initiator =
-            Self::new_with_electrum(keys, relay, electrum_server, name)?.network(network);
-        initiator.initiator = true;
-        Ok(initiator)
+        let j = Self::new_with_electrum(keys, relay, electrum_server, name)?.network(network);
+        j.inner.lock().expect("poisoned").initiator = true;
+        Ok(j)
     }
 
     /// Set the bitcoin network to mainnet
-    pub fn mainnet(mut self) -> Self {
-        self.network = Network::Bitcoin;
+    pub fn mainnet(self) -> Self {
+        self.inner.lock().expect("poisoned").network = Network::Bitcoin;
         self
     }
 
     /// Set the bitcoin network to signet
-    pub fn signet(mut self) -> Self {
-        self.network = Network::Signet;
+    pub fn signet(self) -> Self {
+        self.inner.lock().expect("poisoned").network = Network::Signet;
         self
     }
 
     /// Set the bitcoin network to testnet
-    pub fn testnet(mut self) -> Self {
-        self.network = Network::Testnet;
+    pub fn testnet(self) -> Self {
+        self.inner.lock().expect("poisoned").network = Network::Testnet;
         self
     }
 
     /// Set the bitcoin network to regtest
-    pub fn regtest(mut self) -> Self {
-        self.network = Network::Regtest;
+    pub fn regtest(self) -> Self {
+        self.inner.lock().expect("poisoned").network = Network::Regtest;
         self
     }
 
     /// Set the bitcoin network to network
-    pub fn network(mut self, network: Network) -> Self {
-        self.network = network;
+    pub fn network(self, network: Network) -> Self {
+        self.inner.lock().expect("poisoned").network = network;
         self
     }
 
     /// Set the denomination of the pool in Bitcoin.
-    pub fn denomination(mut self, denomination: f64) -> Result<Self, Error> {
-        self.pool_not_exists()?;
-        if self.denomination.is_none() {
-            self.denomination =
+    pub fn denomination(self, denomination: f64) -> Result<Self, Error> {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.pool_not_exists()?;
+        if inner.denomination.is_none() {
+            inner.denomination =
                 Some(Amount::from_btc(denomination).map_err(|_| Error::WrongDenomination)?);
+            drop(inner);
             Ok(self)
         } else {
             Err(Error::DenominationAlreadySet)
@@ -268,13 +280,15 @@ impl<'a> Joinstr<'a> {
     }
 
     /// Set the min number of peers of the pool
-    pub fn min_peers(mut self, peers: usize) -> Result<Self, Error> {
+    pub fn min_peers(self, peers: usize) -> Result<Self, Error> {
         if peers < 2 {
             return Err(Error::Min2Peers);
         }
-        self.pool_not_exists()?;
-        if self.peers.is_none() {
-            self.peers = Some(peers);
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.pool_not_exists()?;
+        if inner.peers.is_none() {
+            inner.peers = Some(peers);
+            drop(inner);
             Ok(self)
         } else {
             Err(Error::PeersAlreadySet)
@@ -283,10 +297,12 @@ impl<'a> Joinstr<'a> {
 
     /// Set the timestamp at which the pool will be considered canceled if
     ///   not enough peer have join.
-    pub fn simple_timeout(mut self, timestamp: u64) -> Result<Self, Error> {
-        self.pool_not_exists()?;
-        if self.timeout.is_none() {
-            self.timeout = Some(Timeline::Simple(timestamp));
+    pub fn simple_timeout(self, timestamp: u64) -> Result<Self, Error> {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.pool_not_exists()?;
+        if inner.timeout.is_none() {
+            inner.timeout = Some(Timeline::Simple(timestamp));
+            drop(inner);
             Ok(self)
         } else {
             Err(Error::TimeoutAlreadySet)
@@ -294,26 +310,413 @@ impl<'a> Joinstr<'a> {
     }
 
     /// Add a relay address to [`Joinstr::relays`]
-    pub fn relay<T: Into<String>>(mut self, url: T) -> Result<Self, Error> {
-        self.pool_not_exists()?;
+    pub fn relay<T: Into<String>>(self, url: T) -> Result<Self, Error> {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.pool_not_exists()?;
         // TODO: check the address is valid
         let url: String = url.into();
-        self.relays.push(url);
+        inner.relays.push(url);
+        drop(inner);
         Ok(self)
     }
 
     /// Set the minimum fee rate that the final transaction should spend to
     /// be considered valid (sats/vb)
-    pub fn fee(mut self, fee: u32) -> Result<Self, Error> {
-        self.pool_not_exists()?;
-        if self.fee.is_none() {
-            self.fee = Some(Fee::Fixed(fee));
+    pub fn fee(self, fee: u32) -> Result<Self, Error> {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.pool_not_exists()?;
+        if inner.fee.is_none() {
+            inner.fee = Some(Fee::Fixed(fee));
+            drop(inner);
             Ok(self)
         } else {
             Err(Error::FeeAlreadySet)
         }
     }
 
+    /// Set the coin to coinjoin
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the coin is already set
+    pub fn set_coin(&mut self, coin: Coin) -> Result<(), Error> {
+        self.inner.lock().expect("poisoned").set_coin(coin)
+    }
+
+    /// Set the address the coin must be sent to
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the address is already set
+    /// or if address is for wrong network
+    pub fn set_address(&mut self, addr: Address<NetworkUnchecked>) -> Result<(), Error> {
+        self.inner.lock().expect("poisoned").set_address(addr)
+    }
+
+    /// Returns the finalized transaction
+    pub fn final_tx(&self) -> Option<miniscript::bitcoin::Transaction> {
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .final_tx
+            .as_ref()
+            .cloned()
+    }
+
+    /// Try to join the pool.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - the pool does not exists
+    ///   - the nostr client does not have keys
+    ///   - the nostr client fail to connect relays
+    ///   - sending a message to the pool fails
+    ///   - receiving credentials fails
+    ///   - pool connexion timed out
+    fn join_pool(&mut self) -> Result<(), Error> {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.pool_exists()?;
+        let pool_npub = inner.pool_as_ref()?.public_key;
+        // TODO: receive the response on a derived npub;
+        let my_npub = inner.client.get_keys()?.public_key();
+
+        inner
+            .client
+            .send_pool_message(&pool_npub, PoolMessage::Join(Some(my_npub)))?;
+        let (timeout, _) = inner.start_timeline()?;
+        drop(inner);
+
+        let mut backoff = Backoff::new_us(WAIT);
+
+        let mut connected = false;
+        while now() < timeout {
+            let mut inner = self.inner.lock().expect("poisoned");
+            if let Some(PoolMessage::Credentials(Credentials { id, key })) =
+                inner.client.try_receive_pool_msg()?
+            {
+                log::warn!(
+                    "Coordinator({}).connect_to_pool(): receive credentials.",
+                    inner.client.name
+                );
+                if id == inner.pool_as_ref()?.id {
+                    // we create a new nostr client using pool keys and replace the actual one
+                    let keys = Keys::new(key);
+                    let fg = &inner.client.name;
+                    let name = format!("prev_{fg}");
+                    let mut new_client = NostrClient::new(&name)
+                        .relay(inner.client.get_relay().unwrap())?
+                        .keys(keys)?;
+                    new_client.connect_nostr()?;
+                    inner.client = new_client;
+                    connected = true;
+                    break;
+                } else {
+                    log::error!(
+                        "Coordinator({}).connect_to_pool(): pool id not match!",
+                        inner.client.name
+                    );
+                }
+            }
+            drop(inner);
+            backoff.snooze();
+        }
+        if !connected {
+            return Err(Error::PoolConnectionTimeout);
+        }
+        Ok(())
+    }
+
+    /// Start the round of output registration, will block until enough output
+    ///   registered or if some error occur.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - the inner pool not exists
+    ///   - the payload of the pool is missing
+    ///   - the fee are not of type [`Fee::Fixed`]
+    ///   - the nostr client do not have private keys
+    ///   - timeout elapsed
+    ///   - peer count do not match
+    fn register_outputs(&mut self, initiator: bool) -> Result<(), Error> {
+        let inner = self.inner.lock().expect("poisoned");
+        inner.pool_exists()?;
+        let (expired, start_early) = inner.start_timeline()?;
+        let payload = inner.payload_as_ref()?.clone();
+        let fee = if let Fee::Fixed(fee) = payload.fee {
+            fee
+        } else {
+            return Err(Error::NotYetImplemented);
+        };
+        drop(inner);
+
+        let mut peers = HashSet::<PublicKey>::new();
+        let mut coinjoin = CoinJoin::<crate::electrum::Client>::new(payload.denomination, None)
+            .min_peer(payload.peers)
+            .fee(fee as usize);
+
+        let mut backoff = Backoff::new_us(WAIT);
+
+        // register peers
+        while (now() < expired) && !(start_early && peers.len() >= payload.peers) {
+            let mut inner = self.inner.lock().expect("poisoned");
+            if let Ok(Some(msg)) = inner.client.try_receive_pool_msg() {
+                match (msg, initiator) {
+                    (PoolMessage::Join(Some(npub)), send_response) => {
+                        if !peers.contains(&npub) {
+                            if send_response {
+                                let response = PoolMessage::Credentials(Credentials {
+                                    id: inner.pool_as_ref()?.id.clone(),
+                                    key: inner.client.get_keys()?.secret_key().clone(),
+                                });
+                                inner.client.send_pool_message(&npub, response)?;
+                            }
+                            peers.insert(npub);
+                            log::debug!(
+                                "Coordinator({}).register_outputs(): receive Join({}) request. \n      peers: {}",
+                                inner.client.name,
+                                npub,
+                                peers.len()
+                            );
+                        }
+                    }
+                    (PoolMessage::Join(None), _) => panic!("cannot answer if npub is None!"),
+                    (PoolMessage::Output(o), _) => {
+                        log::error!(
+                            "Coordinator({}).register_outputs(): receive Output({:?}) request before output registartion step!",
+                            inner.client.name,
+                            o
+                        );
+                        // NOTE: should we accept output registration at this step?
+                        // Should we store the output and reuse at next step?
+                    }
+                    r => {
+                        // NOTE: simply drop other kind of messages
+                        log::debug!(
+                            "Coordinator({}).register_outputs(): request not handled at peer registration step: {:?}!",
+                            inner.client.name,
+                            r
+                        );
+                    }
+                }
+            } else {
+                drop(inner);
+                backoff.snooze();
+            }
+        }
+
+        // NOTE: at this point should we wait for every peer ACK the output template prior to
+        // signing inputs?
+
+        rand_delay();
+
+        let mut inner = self.inner.lock().expect("poisoned");
+        if let Some(output) = inner.output.as_ref() {
+            coinjoin.add_output(output.clone());
+            inner.register_output()?;
+        }
+        drop(inner);
+
+        let mut backoff = Backoff::new_us(WAIT);
+
+        // register ouputs
+        let expired = self.inner.lock().expect("poisoned").end_timeline()?;
+        while (now() < expired) && (coinjoin.outputs_len() < peers.len()) {
+            let mut inner = self.inner.lock().expect("poisoned");
+            if let Ok(Some(msg)) = inner.client.try_receive_pool_msg() {
+                match msg {
+                    PoolMessage::Join(_) => {
+                        log::error!(
+                            "Coordinator({}).register_outputs(): receive Join request at output registration step!",
+                            inner.client.name,
+                        );
+                    }
+                    PoolMessage::Output(o) => {
+                        log::debug!(
+                            "Coordinator({}).register_outputs(): receive Output({:?}) request.",
+                            inner.client.name,
+                            o
+                        );
+                        let outputs = vec![o];
+                        inner.receive_outputs(outputs, &mut coinjoin)?;
+                    }
+                    // FIXME: here it can be some cases where, because network timing, we can
+                    // receive a signed input before the output registration round ended, we should
+                    // store those inputs in order to use them later.
+                    PoolMessage::Input(_) => todo!("store input"),
+                    r => {
+                        // NOTE: simply drop other kind of messages
+                        log::debug!(
+                            "Coordinator({}).register_outputs(): request not handled at output registration step: {:?}!",
+                            inner.client.name,
+                            r
+                        );
+                    }
+                }
+            } else {
+                drop(inner);
+                backoff.snooze();
+            }
+        }
+
+        if now() > expired {
+            return Err(Error::Timeout);
+        } else if peers.len() < payload.peers {
+            return Err(Error::NotEnoughPeers(peers.len(), payload.peers));
+        } else if coinjoin.outputs_len() != peers.len() {
+            // NOTE: do not allow registered peer that not commit an output as it can be some
+            // lurkers trying deanonimyze peers
+
+            return Err(Error::PeerCountNotMatch(
+                coinjoin.outputs_len(),
+                peers.len(),
+            ));
+        }
+        self.inner.lock().expect("poisoined").coinjoin = Some(coinjoin);
+        Ok(())
+    }
+
+    /// Start the round of input registration, will block until enough input
+    ///   registered or if some error occur.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///   - the inner pool does not exists
+    ///   - the pool payload is missing
+    ///   - [`Joinstr::coinjoin`] is None
+    ///   - timeout expired
+    ///   - trying register an input error
+    ///   - trying finalize coinjoin error
+    fn register_inputs(&mut self) -> Result<(), Error> {
+        let inner = self.inner.lock().expect("poisoned");
+        inner.pool_exists()?;
+        inner.coinjoin_exists()?;
+        let payload = inner.payload_as_ref()?;
+        let expired = match payload.timeout {
+            Timeline::Simple(timestamp) => timestamp,
+            Timeline::Fixed {
+                start,
+                max_duration,
+            } => start + max_duration,
+            Timeline::Timeout { max_duration, .. } => now() + max_duration,
+        };
+        drop(inner);
+        if now() > expired {
+            return Err(Error::Timeout);
+        }
+
+        let mut backoff = Backoff::new_us(WAIT);
+
+        while now() < expired
+            && self
+                .inner
+                .lock()
+                .expect("poisoned")
+                .coinjoin_as_ref()?
+                .tx
+                .is_none()
+        {
+            let mut inner = self.inner.lock().expect("poisoned");
+            let msg = inner.client.try_receive_pool_msg();
+            if let Ok(Some(msg)) = msg {
+                match msg {
+                    PoolMessage::Psbt(psbt) => {
+                        let input: InputDataSigned =
+                            psbt.try_into().map_err(|_| Error::PsbtToInput)?;
+                        inner.try_register_input(input)?;
+                        if inner.try_finalize_coinjoin()? {
+                            break;
+                        }
+                    }
+                    PoolMessage::Input(input) => {
+                        inner.try_register_input(input)?;
+                        if inner.try_finalize_coinjoin()? {
+                            break;
+                        }
+                    }
+                    m => {
+                        // NOTE: simply drop other kind of messages
+                        log::error!(
+                            "Coordinator({}).register_input(): drop message {:?}",
+                            inner.client.name,
+                            m
+                        );
+                    }
+                }
+            } else {
+                drop(inner);
+                backoff.snooze();
+            }
+        }
+        if now() > expired {
+            Err(Error::Timeout)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Start a coinjoin process, followings steps will be processed:
+    ///   - if no `pool` arg is passed, a new pool will be initiated.
+    ///   - if a `pool` arg is passed, it will join the pool
+    ///   - run the outputs registration round
+    ///   - if a `signer` arg is passed, it will signed the input it owns.
+    ///   - run the inputs registration round
+    ///   - finalize the transaction
+    ///   - broadcast the transaction
+    ///
+    /// # Arguments
+    /// * `pool` - The pool we want join (optional)
+    /// * `signer` - The signer to sign our input with (optional)
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if any step return an error.
+    pub fn start_coinjoin<S>(&mut self, pool: Option<Pool>, signer: Option<&S>) -> Result<(), Error>
+    where
+        S: JoinstrSigner,
+    {
+        let initiator = pool.is_none();
+        if let Some(pool) = pool {
+            let mut inner = self.inner.lock().expect("poisoned");
+            inner.pool_not_exists()?;
+            inner.pool = Some(pool);
+            drop(inner);
+            self.join_pool()?;
+        } else {
+            // broadcast the pool event
+            self.inner.lock().expect("poisoned").post()?;
+        }
+        // register peers & outputs
+        self.register_outputs(initiator)?;
+
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .generate_unsigned_tx()?;
+
+        rand_delay();
+
+        let mut inner = self.inner.lock().expect("poisoned");
+        if inner.input.is_some() {
+            if let Some(s) = signer {
+                inner.register_input(s)?;
+            } else {
+                return Err(Error::SignerMissing);
+            }
+        }
+        drop(inner);
+
+        self.register_inputs()?;
+
+        self.inner.lock().expect("poisoned").broadcast_tx()?;
+
+        Ok(())
+    }
+}
+
+impl<'a> JoinstrInner<'a> {
     /// Utility function that will error if [`Joinstr::pool`] is Some()
     fn pool_not_exists(&self) -> Result<(), Error> {
         if self.pool.is_some() {
@@ -543,6 +946,9 @@ impl<'a> Joinstr<'a> {
     /// This function will return an error if:
     ///   - the inner pool is None
     ///   - the address is not valid for the network
+    ///
+    /// Note: `outputs` is a Vec in order to allow a future compatibility
+    /// for several "coordinator" instances operating on differents nostr relays.
     fn receive_outputs<T>(
         &mut self,
         outputs: Vec<Address<NetworkUnchecked>>,
@@ -565,148 +971,6 @@ impl<'a> Joinstr<'a> {
                 );
             }
         }
-        Ok(())
-    }
-
-    /// Start the round of output registration, will block until enough output
-    ///   registered or if some error occur.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    ///   - the inner pool not exists
-    ///   - the payload of the pool is missing
-    ///   - the fee are not of type [`Fee::Fixed`]
-    ///   - the nostr client do not have private keys
-    ///   - timeout elapsed
-    ///   - peer count do not match
-    fn register_outputs(&mut self, initiator: bool) -> Result<(), Error> {
-        self.pool_exists()?;
-        let (expired, start_early) = self.start_timeline()?;
-        let payload = self.payload_as_ref()?.clone();
-        let fee = if let Fee::Fixed(fee) = payload.fee {
-            fee
-        } else {
-            return Err(Error::NotYetImplemented);
-        };
-
-        let mut peers = HashSet::<PublicKey>::new();
-        let mut coinjoin = CoinJoin::<crate::electrum::Client>::new(payload.denomination, None)
-            .min_peer(payload.peers)
-            .fee(fee as usize);
-
-        let mut backoff = Backoff::new_us(WAIT);
-
-        // register peers
-        while (now() < expired) && !(start_early && peers.len() >= payload.peers) {
-            if let Ok(Some(msg)) = self.client.receive_pool_msg() {
-                match (msg, initiator) {
-                    (PoolMessage::Join(Some(npub)), send_response) => {
-                        if !peers.contains(&npub) {
-                            if send_response {
-                                let response = PoolMessage::Credentials(Credentials {
-                                    id: self.pool_as_ref()?.id.clone(),
-                                    key: self.client.get_keys()?.secret_key().clone(),
-                                });
-                                self.client.send_pool_message(&npub, response)?;
-                            }
-                            peers.insert(npub);
-                            log::debug!(
-                                "Coordinator({}).register_outputs(): receive Join({}) request. \n      peers: {}",
-                                self.client.name,
-                                npub,
-                                peers.len()
-                            );
-                        }
-                    }
-                    (PoolMessage::Join(None), _) => panic!("cannot answer if npub is None!"),
-                    (PoolMessage::Output(o), _) => {
-                        log::error!(
-                            "Coordinator({}).register_outputs(): receive Output({:?}) request before output registartion step!",
-                            self.client.name,
-                            o
-                        );
-                        // NOTE: should we accept output registration at this step?
-                        // Should we store the output and reuse at next step?
-                    }
-                    r => {
-                        // NOTE: simply drop other kind of messages
-                        log::debug!(
-                            "Coordinator({}).register_outputs(): request not handled at peer registration step: {:?}!",
-                            self.client.name,
-                            r
-                        );
-                    }
-                }
-            } else {
-                backoff.snooze();
-            }
-        }
-
-        // NOTE: at this point should we wait for every peer ACK the output template prior to
-        // signing inputs?
-
-        rand_delay();
-
-        if let Some(output) = self.output.as_ref() {
-            coinjoin.add_output(output.clone());
-            self.register_output()?;
-        }
-
-        let mut backoff = Backoff::new_us(WAIT);
-
-        // register ouputs
-        let expired = self.end_timeline()?;
-        while (now() < expired) && (coinjoin.outputs_len() < peers.len()) {
-            if let Ok(Some(msg)) = self.client.receive_pool_msg() {
-                match msg {
-                    PoolMessage::Join(_) => {
-                        log::error!(
-                            "Coordinator({}).register_outputs(): receive Join request at output registration step!",
-                            self.client.name,
-                        );
-                    }
-                    PoolMessage::Output(o) => {
-                        log::debug!(
-                            "Coordinator({}).register_outputs(): receive Output({:?}) request.",
-                            self.client.name,
-                            o
-                        );
-                        let outputs = vec![o];
-                        self.receive_outputs(outputs, &mut coinjoin)?;
-                    }
-                    // FIXME: here it can be some cases where, because network timing, we can
-                    // receive a signed input before the output registration round ended, we should
-                    // store those inputs in order to use them later.
-                    PoolMessage::Input(_) => todo!("store input"),
-                    r => {
-                        // NOTE: simply drop other kind of messages
-                        log::debug!(
-                            "Coordinator({}).register_outputs(): request not handled at output registration step: {:?}!",
-                            self.client.name,
-                            r
-                        );
-                    }
-                }
-            } else {
-                backoff.snooze();
-            }
-        }
-
-        if now() > expired {
-            return Err(Error::Timeout);
-        } else if peers.len() < payload.peers {
-            return Err(Error::NotEnoughPeers(peers.len(), payload.peers));
-        } else if coinjoin.outputs_len() != peers.len() {
-            // NOTE: do not allow registered peer that not commit an output as it can be some
-            // lurkers trying deanonimyze peers
-
-            return Err(Error::PeerCountNotMatch(
-                coinjoin.outputs_len(),
-                peers.len(),
-            ));
-        }
-        self.coinjoin = Some(coinjoin);
         Ok(())
     }
 
@@ -787,74 +1051,6 @@ impl<'a> Joinstr<'a> {
         }
     }
 
-    /// Start the round of input registration, will block until enough input
-    ///   registered or if some error occur.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    ///   - the inner pool does not exists
-    ///   - the pool payload is missing
-    ///   - [`Joinstr::coinjoin`] is None
-    ///   - timeout expired
-    ///   - trying register an input error
-    ///   - trying finalize coinjoin error
-    fn register_inputs(&mut self) -> Result<(), Error> {
-        self.pool_exists()?;
-        self.coinjoin_exists()?;
-        let payload = self.payload_as_ref()?;
-        let expired = match payload.timeout {
-            Timeline::Simple(timestamp) => timestamp,
-            Timeline::Fixed {
-                start,
-                max_duration,
-            } => start + max_duration,
-            Timeline::Timeout { max_duration, .. } => now() + max_duration,
-        };
-        if now() > expired {
-            return Err(Error::Timeout);
-        }
-
-        let mut backoff = Backoff::new_us(WAIT);
-
-        while now() < expired && self.coinjoin_as_ref()?.tx.is_none() {
-            let msg = self.client.receive_pool_msg();
-            if let Ok(Some(msg)) = msg {
-                match msg {
-                    PoolMessage::Psbt(psbt) => {
-                        let input: InputDataSigned =
-                            psbt.try_into().map_err(|_| Error::PsbtToInput)?;
-                        self.try_register_input(input)?;
-                        if self.try_finalize_coinjoin()? {
-                            break;
-                        }
-                    }
-                    PoolMessage::Input(input) => {
-                        self.try_register_input(input)?;
-                        if self.try_finalize_coinjoin()? {
-                            break;
-                        }
-                    }
-                    m => {
-                        // NOTE: simply drop other kind of messages
-                        log::error!(
-                            "Coordinator({}).register_input(): drop message {:?}",
-                            self.client.name,
-                            m
-                        );
-                    }
-                }
-            } else {
-                backoff.snooze();
-            }
-        }
-        if now() > expired {
-            Err(Error::Timeout)
-        } else {
-            Ok(())
-        }
-    }
-
     /// Generate the unsignex transaction
     ///
     /// # Errors
@@ -896,65 +1092,6 @@ impl<'a> Joinstr<'a> {
         self.final_tx.as_ref()
     }
 
-    /// Try to join the pool.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    ///   - the pool does not exists
-    ///   - the nostr client does not have keys
-    ///   - the nostr client fail to connect relays
-    ///   - sending a message to the pool fails
-    ///   - receiving credentials fails
-    ///   - pool connexion timed out
-    fn join_pool(&mut self) -> Result<(), Error> {
-        self.pool_exists()?;
-        let pool_npub = self.pool_as_ref()?.public_key;
-        // TODO: receive the response on a derived npub;
-        let my_npub = self.client.get_keys()?.public_key();
-
-        self.client
-            .send_pool_message(&pool_npub, PoolMessage::Join(Some(my_npub)))?;
-        let (timeout, _) = self.start_timeline()?;
-
-        let mut backoff = Backoff::new_us(WAIT);
-
-        let mut connected = false;
-        while now() < timeout {
-            if let Some(PoolMessage::Credentials(Credentials { id, key })) =
-                self.client.receive_pool_msg()?
-            {
-                log::warn!(
-                    "Coordinator({}).connect_to_pool(): receive credentials.",
-                    self.client.name
-                );
-                if id == self.pool_as_ref()?.id {
-                    // we create a new nostr client using pool keys and replace the actual one
-                    let keys = Keys::new(key);
-                    let fg = &self.client.name;
-                    let name = format!("prev_{fg}");
-                    let mut new_client = NostrClient::new(&name)
-                        .relay(self.client.get_relay().unwrap())?
-                        .keys(keys)?;
-                    new_client.connect_nostr()?;
-                    self.client = new_client;
-                    connected = true;
-                    break;
-                } else {
-                    log::error!(
-                        "Coordinator({}).connect_to_pool(): pool id not match!",
-                        self.client.name
-                    );
-                }
-            }
-            backoff.snooze();
-        }
-        if !connected {
-            return Err(Error::PoolConnectionTimeout);
-        }
-        Ok(())
-    }
-
     /// Set the coin to coinjoin
     ///
     /// # Errors
@@ -987,56 +1124,5 @@ impl<'a> Joinstr<'a> {
         } else {
             Err(Error::AlreadyHaveOutput)
         }
-    }
-
-    /// Strart a coinjoin process, followings steps will be processed:
-    ///   - if no `pool` arg is passed, a new pool will be initiated.
-    ///   - if a `pool` arg is passed, it will join the pool
-    ///   - run the outputs registration round
-    ///   - if a `signer` arg is passed, it will signed the input it owns.
-    ///   - run the inputs registration round
-    ///   - finalize the transaction
-    ///   - broadcast the transaction
-    ///
-    /// # Arguments
-    /// * `pool` - The pool we want join (optional)
-    /// * `signer` - The signer to sign our input with (optional)
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if any step return an error.
-    pub fn start_coinjoin<S>(&mut self, pool: Option<Pool>, signer: Option<&S>) -> Result<(), Error>
-    where
-        S: JoinstrSigner,
-    {
-        let initiator = pool.is_none();
-        if let Some(pool) = pool {
-            self.pool_not_exists()?;
-            self.pool = Some(pool);
-            self.join_pool()?;
-        } else {
-            // broadcast the pool event
-            self.post()?;
-        }
-        // register peers & outputs
-        self.register_outputs(initiator)?;
-
-        self.generate_unsigned_tx()?;
-
-        rand_delay();
-
-        if self.input.is_some() {
-            if let Some(s) = signer {
-                self.register_input(s)?;
-            } else {
-                return Err(Error::SignerMissing);
-            }
-        }
-
-        self.register_inputs()?;
-
-        self.broadcast_tx()?;
-
-        Ok(())
     }
 }

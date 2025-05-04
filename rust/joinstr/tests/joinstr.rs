@@ -9,12 +9,13 @@ use crate::utils::{bootstrap_electrs, funded_wallet_with_bitcoind};
 use electrsd::bitcoind::bitcoincore_rpc::RpcApi;
 use joinstr::{
     electrum::Client,
+    joinstr::Joinstr,
     signer::{CoinPath, WpkhHotSigner},
     utils::now,
 };
 use miniscript::bitcoin::Network;
 
-use joinstr::{joinstr::Joinstr, nostr::sync::NostrClient};
+use joinstr::nostr::sync::NostrClient;
 use nostrd::NostrD;
 use simple_nostr_client::nostr::{Event, Keys, Kind};
 
@@ -140,7 +141,7 @@ fn simple_coinjoin() {
         coordinator
             .start_coinjoin(None, Option::<&WpkhHotSigner>::None)
             .unwrap();
-        coordinator.final_tx().cloned()
+        coordinator.final_tx()
     });
 
     clear_nostr_log(&mut relay);
