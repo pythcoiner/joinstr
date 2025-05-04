@@ -33,9 +33,45 @@ pub struct Joinstr<'a> {
     inner: Arc<Mutex<JoinstrInner<'a>>>,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub enum Role {
+    #[default]
+    Unknown,
+    Initiator,
+    Peer,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub enum Step {
+    #[default]
+    Unconfigured,
+    Configured,
+    Posting,
+    Connecting,
+    OutputRegistration,
+    InputRegistration,
+    Broadcast,
+    Mined,
+    Failed,
+}
+
+pub struct Status {
+    role: Role,
+    step: Step,
+    registered_peers: usize,
+    registered_outputs: usize,
+    registered_inputs: usize,
+    confirmations: usize,
+}
+
 #[derive(Debug)]
 pub struct JoinstrInner<'a> {
-    pub initiator: bool,
+    role: Role,
+    step: Step,
+    registered_peers: usize,
+    registered_outputs: usize,
+    registered_inputs: usize,
+    confirmations: usize,
     pub client: NostrClient,
     pub pool: Option<Pool>,
     pub denomination: Option<Amount>,
@@ -54,7 +90,12 @@ pub struct JoinstrInner<'a> {
 impl Default for JoinstrInner<'_> {
     fn default() -> Self {
         Self {
-            initiator: false,
+            role: Default::default(),
+            step: Default::default(),
+            registered_peers: 0,
+            registered_outputs: 0,
+            registered_inputs: 0,
+            confirmations: 0,
             client: Default::default(),
             pool: Default::default(),
             denomination: Default::default(),
@@ -174,7 +215,7 @@ impl Joinstr<'_> {
         let mut inner = peer.inner.lock().expect("poisoned");
         inner.input = Some(input);
         inner.output = Some(address);
-        inner.initiator = false;
+        inner.role = Role::Peer;
         drop(inner);
         Ok(peer)
     }
@@ -204,7 +245,7 @@ impl Joinstr<'_> {
         let electrum = crate::electrum::Client::new(electrum_server.0, electrum_server.1)?;
         let peer = Self::new_peer(relay, pool, input, output, network, name)?;
         let mut inner = peer.inner.lock().expect("poisoned");
-        inner.initiator = false;
+        inner.role = Role::Peer;
         inner.electrum_client = Some(electrum);
         drop(inner);
         Ok(peer)
@@ -231,7 +272,7 @@ impl Joinstr<'_> {
         name: &str,
     ) -> Result<Self, Error> {
         let j = Self::new_with_electrum(keys, relay, electrum_server, name)?.network(network);
-        j.inner.lock().expect("poisoned").initiator = true;
+        j.inner.lock().expect("poisoned").role = Role::Initiator;
         Ok(j)
     }
 
@@ -377,6 +418,7 @@ impl Joinstr<'_> {
     fn join_pool(&mut self) -> Result<(), Error> {
         let mut inner = self.inner.lock().expect("poisoned");
         inner.pool_exists()?;
+        inner.step = Step::Connecting;
         let pool_npub = inner.pool_as_ref()?.public_key;
         // TODO: receive the response on a derived npub;
         let my_npub = inner.client.get_keys()?.public_key();
@@ -410,6 +452,7 @@ impl Joinstr<'_> {
                     new_client.connect_nostr()?;
                     inner.client = new_client;
                     connected = true;
+                    inner.step = Step::OutputRegistration;
                     break;
                 } else {
                     log::error!(
@@ -439,7 +482,7 @@ impl Joinstr<'_> {
     ///   - the nostr client do not have private keys
     ///   - timeout elapsed
     ///   - peer count do not match
-    fn register_outputs(&mut self, initiator: bool) -> Result<(), Error> {
+    fn register_outputs(&mut self) -> Result<(), Error> {
         let inner = self.inner.lock().expect("poisoned");
         inner.pool_exists()?;
         let (expired, start_early) = inner.start_timeline()?;
@@ -462,7 +505,7 @@ impl Joinstr<'_> {
         while (now() < expired) && !(start_early && peers.len() >= payload.peers) {
             let mut inner = self.inner.lock().expect("poisoned");
             if let Ok(Some(msg)) = inner.client.try_receive_pool_msg() {
-                match (msg, initiator) {
+                match (msg, matches!(inner.role, Role::Initiator)) {
                     (PoolMessage::Join(Some(npub)), send_response) => {
                         if !peers.contains(&npub) {
                             if send_response {
@@ -473,6 +516,7 @@ impl Joinstr<'_> {
                                 inner.client.send_pool_message(&npub, response)?;
                             }
                             peers.insert(npub);
+                            inner.registered_peers += 1;
                             log::debug!(
                                 "Coordinator({}).register_outputs(): receive Join({}) request. \n      peers: {}",
                                 inner.client.name,
@@ -481,6 +525,7 @@ impl Joinstr<'_> {
                             );
                         }
                     }
+                    // TODO: do not panic here
                     (PoolMessage::Join(None), _) => panic!("cannot answer if npub is None!"),
                     (PoolMessage::Output(o), _) => {
                         log::error!(
@@ -527,6 +572,7 @@ impl Joinstr<'_> {
             if let Ok(Some(msg)) = inner.client.try_receive_pool_msg() {
                 match msg {
                     PoolMessage::Join(_) => {
+                        // FIXME: we should not log an error here
                         log::error!(
                             "Coordinator({}).register_outputs(): receive Join request at output registration step!",
                             inner.client.name,
@@ -540,6 +586,8 @@ impl Joinstr<'_> {
                         );
                         let outputs = vec![o];
                         inner.receive_outputs(outputs, &mut coinjoin)?;
+                        // TODO: we must error if outputs > peers
+                        inner.registered_outputs += 1;
                     }
                     // FIXME: here it can be some cases where, because network timing, we can
                     // receive a signed input before the output registration round ended, we should
@@ -657,6 +705,14 @@ impl Joinstr<'_> {
         }
     }
 
+    /// Returns the current state of the [`Joinstr`] instance.
+    ///
+    /// # Returns
+    /// A [`State`] struct containing the current state information.
+    pub fn status(&self) -> Status {
+        self.inner.lock().expect("poisoned").status()
+    }
+
     /// Start a coinjoin process, followings steps will be processed:
     ///   - if no `pool` arg is passed, a new pool will be initiated.
     ///   - if a `pool` arg is passed, it will join the pool
@@ -677,19 +733,24 @@ impl Joinstr<'_> {
     where
         S: JoinstrSigner,
     {
-        let initiator = pool.is_none();
+        let mut inner = self.inner.lock().expect("poisoned");
+
+        if matches!(inner.role, Role::Unknown) {
+            return Err(Error::WrongRole);
+        }
+
         if let Some(pool) = pool {
-            let mut inner = self.inner.lock().expect("poisoned");
             inner.pool_not_exists()?;
             inner.pool = Some(pool);
             drop(inner);
             self.join_pool()?;
         } else {
             // broadcast the pool event
-            self.inner.lock().expect("poisoned").post()?;
+            inner.post()?;
+            drop(inner);
         }
         // register peers & outputs
-        self.register_outputs(initiator)?;
+        self.register_outputs()?;
 
         self.inner
             .lock()
@@ -829,6 +890,8 @@ impl<'a> JoinstrInner<'a> {
     fn post(&mut self) -> Result<(), Error> {
         self.is_ready()?;
         self.pool_not_exists()?;
+
+        self.step = Step::Posting;
         let public_key = self.client.get_keys()?.public_key();
         let transport = crate::nostr::Transport {
             vpn: Some(Vpn {
@@ -869,6 +932,7 @@ impl<'a> JoinstrInner<'a> {
         };
         self.client.post_event(pool.clone().try_into()?)?;
         self.pool = Some(pool);
+        self.step = Step::OutputRegistration;
         Ok(())
     }
 
@@ -932,6 +996,7 @@ impl<'a> JoinstrInner<'a> {
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
             self.client.send_pool_message(&npub, msg)?;
+            self.registered_outputs += 1;
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -1001,6 +1066,7 @@ impl<'a> JoinstrInner<'a> {
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
             self.client.send_pool_message(&npub, msg)?;
+            self.registered_inputs += 1;
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -1028,6 +1094,8 @@ impl<'a> JoinstrInner<'a> {
                     self.client.name,
                     e
                 );
+            } else {
+                self.registered_inputs += 1;
             }
         }
         Ok(())
@@ -1084,6 +1152,7 @@ impl<'a> JoinstrInner<'a> {
             client.broadcast(&tx)?;
         }
         self.final_tx = Some(tx);
+        self.step = Step::Broadcast;
         Ok(())
     }
 
@@ -1123,6 +1192,21 @@ impl<'a> JoinstrInner<'a> {
             Ok(())
         } else {
             Err(Error::AlreadyHaveOutput)
+        }
+    }
+
+    /// Returns the current state of the [`JoinstrInner`] instance.
+    ///
+    /// # Returns
+    /// A [`State`] struct containing the current state information.
+    pub fn status(&self) -> Status {
+        Status {
+            role: self.role,
+            step: self.step,
+            registered_peers: self.registered_peers,
+            registered_outputs: self.registered_outputs,
+            registered_inputs: self.registered_inputs,
+            confirmations: self.confirmations,
         }
     }
 }

@@ -41,6 +41,8 @@ pub enum Error {
     TimelineDuration,
     AlreadyHaveInput,
     AlreadyHaveOutput,
+    WrongRole,
+    WrongConfig,
 }
 
 impl From<crate::coinjoin::Error> for Error {
