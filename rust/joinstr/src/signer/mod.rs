@@ -24,6 +24,7 @@ pub trait JoinstrSigner {
     fn sign_input(&self, tx: &Transaction, input_data: Coin) -> Result<InputDataSigned, String>;
 }
 
+// S: JoinstrSigner + Sync + Clone + Send + 'static,
 #[derive(Clone)]
 pub struct WpkhHotSigner {
     #[allow(unused)]

@@ -5,6 +5,7 @@ pub use error::Error;
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -28,9 +29,9 @@ use crate::{
 // delay we wait between (non-blocking) polls of a channel
 pub const WAIT: u64 = 50;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Joinstr<'a> {
-    inner: Arc<Mutex<JoinstrInner<'a>>>,
+    pub inner: Arc<Mutex<JoinstrInner<'a>>>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -62,6 +63,7 @@ pub struct Status {
     registered_outputs: usize,
     registered_inputs: usize,
     confirmations: usize,
+    error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -72,6 +74,7 @@ pub struct JoinstrInner<'a> {
     registered_outputs: usize,
     registered_inputs: usize,
     confirmations: usize,
+    error: Option<String>,
     pub client: NostrClient,
     pub pool: Option<Pool>,
     pub denomination: Option<Amount>,
@@ -96,6 +99,7 @@ impl Default for JoinstrInner<'_> {
             registered_outputs: 0,
             registered_inputs: 0,
             confirmations: 0,
+            error: None,
             client: Default::default(),
             pool: Default::default(),
             denomination: Default::default(),
@@ -729,9 +733,29 @@ impl Joinstr<'_> {
     /// # Errors
     ///
     /// This function will return an error if any step return an error.
-    pub fn start_coinjoin<S>(&mut self, pool: Option<Pool>, signer: Option<&S>) -> Result<(), Error>
+    pub fn start_coinjoin<S>(&mut self, pool: Option<Pool>, signer: Option<S>)
     where
-        S: JoinstrSigner,
+        S: JoinstrSigner + Sized + Sync + Clone + Send + 'static,
+        Self: Sized + Send + 'static,
+    {
+        let mut cloned = self.clone();
+        let signer = signer.clone();
+        thread::spawn(move || {
+            if let Err(e) = cloned.start_coinjoin_blocking(pool, signer) {
+                let mut inner = cloned.inner.lock().expect("poisoned");
+                inner.error = Some(format!("{:?}", e));
+                inner.step = Step::Failed;
+            }
+        });
+    }
+
+    pub fn start_coinjoin_blocking<S>(
+        &mut self,
+        pool: Option<Pool>,
+        signer: Option<S>,
+    ) -> Result<(), Error>
+    where
+        S: JoinstrSigner + Sync + Clone + Send + 'static,
     {
         let mut inner = self.inner.lock().expect("poisoned");
 
@@ -762,7 +786,7 @@ impl Joinstr<'_> {
         let mut inner = self.inner.lock().expect("poisoned");
         if inner.input.is_some() {
             if let Some(s) = signer {
-                inner.register_input(s)?;
+                inner.register_input(&s)?;
             } else {
                 return Err(Error::SignerMissing);
             }
@@ -1207,6 +1231,7 @@ impl<'a> JoinstrInner<'a> {
             registered_outputs: self.registered_outputs,
             registered_inputs: self.registered_inputs,
             confirmations: self.confirmations,
+            error: self.error.clone(),
         }
     }
 }
