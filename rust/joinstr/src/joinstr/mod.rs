@@ -1,6 +1,7 @@
 mod error;
 use backoff::Backoff;
 pub use error::Error;
+use serde::{Deserialize, Serialize};
 
 use std::{
     collections::HashSet,
@@ -11,6 +12,7 @@ use std::{
 
 use miniscript::bitcoin::{Amount, Network};
 use simple_nostr_client::nostr::{
+    self,
     bitcoin::{address::NetworkUnchecked, Address},
     hashes::{sha256, Hash, HashEngine},
     Keys, PublicKey,
@@ -70,17 +72,14 @@ pub struct Status {
 pub struct JoinstrInner<'a> {
     role: Role,
     step: Step,
-    registered_peers: usize,
-    registered_outputs: usize,
-    registered_inputs: usize,
     confirmations: usize,
     error: Option<String>,
     pub client: NostrClient,
     pub pool: Option<Pool>,
     pub denomination: Option<Amount>,
-    pub peers: Option<usize>,
+    pub peers_count: Option<usize>,
     pub timeout: Option<Timeline>,
-    pub relays: Vec<String>,
+    pub relay: Option<String>,
     pub fee: Option<Fee>,
     pub network: Network,
     pub coinjoin: Option<CoinJoin<'a, crate::electrum::Client>>,
@@ -88,6 +87,26 @@ pub struct JoinstrInner<'a> {
     input: Option<Coin>,
     output: Option<Address>,
     final_tx: Option<miniscript::bitcoin::Transaction>,
+    // requests history
+    peers: Vec<nostr::PublicKey>,
+    outputs: Vec<miniscript::bitcoin::Address>,
+    inputs: Vec<InputDataSigned>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct State {
+    pool_secret_key: String, /* nostr::Keys*/
+    relay: String,
+    electrum: Option<String>,
+    pool: Pool,
+    input: Option<Coin>,
+    output: Option<Address<NetworkUnchecked>>,
+    network: bitcoin::Network,
+    final_tx: Option<bitcoin::Transaction>,
+    // requests history
+    peers: Vec<nostr::PublicKey>,
+    outputs: Vec<bitcoin::Address<NetworkUnchecked>>,
+    inputs: Vec<serde_json::Value /* InputDataSigned*/>,
 }
 
 impl Default for JoinstrInner<'_> {
@@ -95,17 +114,14 @@ impl Default for JoinstrInner<'_> {
         Self {
             role: Default::default(),
             step: Default::default(),
-            registered_peers: 0,
-            registered_outputs: 0,
-            registered_inputs: 0,
             confirmations: 0,
             error: None,
             client: Default::default(),
             pool: Default::default(),
             denomination: Default::default(),
-            peers: Default::default(),
+            peers_count: Default::default(),
             timeout: Default::default(),
-            relays: Default::default(),
+            relay: Default::default(),
             fee: Default::default(),
             network: Network::Bitcoin,
             coinjoin: None,
@@ -113,6 +129,9 @@ impl Default for JoinstrInner<'_> {
             input: None,
             output: None,
             final_tx: None,
+            peers: Default::default(),
+            outputs: Default::default(),
+            inputs: Default::default(),
         }
     }
 }
@@ -132,10 +151,10 @@ impl Joinstr<'_> {
     fn new(keys: Keys, relay: String, name: &str) -> Result<Self, Error> {
         let mut client = NostrClient::new(name).relay(relay.clone())?.keys(keys)?;
         client.connect_nostr()?;
-        let relays = vec![relay];
+        let relay = Some(relay);
         let inner = Arc::new(Mutex::new(JoinstrInner {
             client,
-            relays,
+            relay,
             ..Default::default()
         }));
         Ok(Joinstr { inner })
@@ -331,8 +350,8 @@ impl Joinstr<'_> {
         }
         let mut inner = self.inner.lock().expect("poisoned");
         inner.pool_not_exists()?;
-        if inner.peers.is_none() {
-            inner.peers = Some(peers);
+        if inner.peers_count.is_none() {
+            inner.peers_count = Some(peers);
             drop(inner);
             Ok(self)
         } else {
@@ -360,7 +379,7 @@ impl Joinstr<'_> {
         inner.pool_not_exists()?;
         // TODO: check the address is valid
         let url: String = url.into();
-        inner.relays.push(url);
+        inner.relay = Some(url);
         drop(inner);
         Ok(self)
     }
@@ -520,7 +539,7 @@ impl Joinstr<'_> {
                                 inner.client.send_pool_message(&npub, response)?;
                             }
                             peers.insert(npub);
-                            inner.registered_peers += 1;
+                            inner.peers.push(npub);
                             log::debug!(
                                 "Coordinator({}).register_outputs(): receive Join({}) request. \n      peers: {}",
                                 inner.client.name,
@@ -588,10 +607,11 @@ impl Joinstr<'_> {
                             inner.client.name,
                             o
                         );
-                        let outputs = vec![o];
+                        let outputs = vec![o.clone()];
                         inner.receive_outputs(outputs, &mut coinjoin)?;
                         // TODO: we must error if outputs > peers
-                        inner.registered_outputs += 1;
+                        // TODO: check address network
+                        inner.outputs.push(o.assume_checked());
                     }
                     // FIXME: here it can be some cases where, because network timing, we can
                     // receive a signed input before the output registration round ended, we should
@@ -709,12 +729,20 @@ impl Joinstr<'_> {
         }
     }
 
-    /// Returns the current state of the [`Joinstr`] instance.
+    /// Returns the current status of the [`Joinstr`] instance.
+    ///
+    /// # Returns
+    /// A [`Status`] struct containing the current state information.
+    pub fn status(&self) -> Status {
+        self.inner.lock().expect("poisoned").status()
+    }
+
+    /// Returns the current serializable state of the [`Joinstr`] instance.
     ///
     /// # Returns
     /// A [`State`] struct containing the current state information.
-    pub fn status(&self) -> Status {
-        self.inner.lock().expect("poisoned").status()
+    pub fn state(&self) -> Option<State> {
+        self.inner.lock().expect("poisoned").state()
     }
 
     /// Start a coinjoin process, followings steps will be processed:
@@ -875,9 +903,9 @@ impl<'a> JoinstrInner<'a> {
     fn is_ready(&self) -> Result<(), Error> {
         if self.pool.is_none()
             && self.denomination.is_some()
-            && self.peers.is_some()
+            && self.peers_count.is_some()
             && self.timeout.is_some()
-            && !self.relays.is_empty()
+            && self.relay.is_some()
             && self.fee.is_some()
         {
             Ok(())
@@ -888,13 +916,13 @@ impl<'a> JoinstrInner<'a> {
             if self.denomination.is_none() {
                 log::error!("Coordinator.is_ready(): denomination is missing!")
             }
-            if self.peers.is_none() {
+            if self.peers_count.is_none() {
                 log::error!("Coordinator.is_ready(): peers is missing!")
             }
             if self.timeout.is_none() {
                 log::error!("Coordinator.is_ready(): timeout is missing!")
             }
-            if self.relays.is_empty() {
+            if self.relay.is_none() {
                 log::error!("Coordinator.is_ready(): no relay specified!")
             }
             if self.fee.is_none() {
@@ -924,14 +952,14 @@ impl<'a> JoinstrInner<'a> {
             }),
             tor: Some(Tor { enable: false }),
         };
-        if self.relays.is_empty() {
+        if self.relay.is_none() {
             return Err(Error::RelaysMissing);
         };
         let payload = PoolPayload {
             denomination: self.denomination.ok_or(Error::DenominationMissing)?,
-            peers: self.peers.ok_or(Error::PeerMissing)?,
+            peers: self.peers_count.ok_or(Error::PeerMissing)?,
             timeout: self.timeout.ok_or(Error::TimeoutMissing)?,
-            relays: self.relays.clone(),
+            relays: self.relay.clone().map(|r| vec![r]).unwrap_or_default(),
             fee: self.fee.clone().ok_or(Error::FeeMissing)?,
             transport,
         };
@@ -1020,7 +1048,7 @@ impl<'a> JoinstrInner<'a> {
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
             self.client.send_pool_message(&npub, msg)?;
-            self.registered_outputs += 1;
+            self.outputs.push(address.clone());
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -1086,11 +1114,11 @@ impl<'a> JoinstrInner<'a> {
             let signed_input = signer
                 .sign_input(&unsigned, input)
                 .map_err(Error::SigningFail)?;
-            let msg = PoolMessage::Input(signed_input);
+            let msg = PoolMessage::Input(signed_input.clone());
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
             self.client.send_pool_message(&npub, msg)?;
-            self.registered_inputs += 1;
+            self.inputs.push(signed_input);
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -1112,14 +1140,14 @@ impl<'a> JoinstrInner<'a> {
         );
         // Register inputs
         if let Some(coinjoin) = self.coinjoin.as_mut() {
-            if let Err(e) = coinjoin.add_input(input) {
+            if let Err(e) = coinjoin.add_input(input.clone()) {
                 log::error!(
                     "Coordinator({}).register_input(): fail to add input: {:?}",
                     self.client.name,
                     e
                 );
             } else {
-                self.registered_inputs += 1;
+                self.inputs.push(input);
             }
         }
         Ok(())
@@ -1219,19 +1247,59 @@ impl<'a> JoinstrInner<'a> {
         }
     }
 
-    /// Returns the current state of the [`JoinstrInner`] instance.
+    /// Returns the current status of the [`JoinstrInner`] instance.
     ///
     /// # Returns
-    /// A [`State`] struct containing the current state information.
+    /// A [`Status`] struct containing the current status information.
     pub fn status(&self) -> Status {
         Status {
             role: self.role,
             step: self.step,
-            registered_peers: self.registered_peers,
-            registered_outputs: self.registered_outputs,
-            registered_inputs: self.registered_inputs,
+            registered_peers: self.peers.len(),
+            registered_outputs: self.outputs.len(),
+            registered_inputs: self.inputs.len(),
             confirmations: self.confirmations,
             error: self.error.clone(),
         }
+    }
+
+    /// Returns the current serializable state of the [`JoinstrInner`] instance.
+    ///
+    /// # Returns
+    /// A [`State`] struct containing the current state information.
+    pub fn state(&self) -> Option<State> {
+        let keys = if let Ok(keys) = self.client.get_keys() {
+            keys
+        } else {
+            return None;
+        };
+        let relay = if let Some(relay) = &self.relay {
+            relay.clone()
+        } else {
+            return None;
+        };
+        let electrum = self.electrum_client.as_ref().map(|c| c.url());
+        let pool = if let Some(pool) = &self.pool {
+            pool.clone()
+        } else {
+            return None;
+        };
+        Some(State {
+            pool_secret_key: keys.secret_key().to_secret_hex(),
+            relay,
+            electrum,
+            pool,
+            input: self.input.clone(),
+            output: self.output.clone().map(|a| a.as_unchecked().clone()),
+            network: self.network,
+            final_tx: self.final_tx.clone(),
+            peers: self.peers.clone(),
+            outputs: self
+                .outputs
+                .iter()
+                .map(|a| a.as_unchecked().clone())
+                .collect(),
+            inputs: self.inputs.iter().map(|i| i.to_json()).collect(),
+        })
     }
 }

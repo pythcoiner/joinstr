@@ -638,6 +638,14 @@ impl Client {
         self.index.remove(&req_id);
         Err(Error::WrongResponse)
     }
+
+    /// Returns the URL of the electrum client.
+    ///
+    /// # Returns
+    /// A `String` containing the URL of the electrum server.
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
 }
 
 impl BitcoinBackend for Client {
