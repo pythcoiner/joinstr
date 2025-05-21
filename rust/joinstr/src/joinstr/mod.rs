@@ -36,7 +36,7 @@ pub struct Joinstr<'a> {
     pub inner: Arc<Mutex<JoinstrInner<'a>>>,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub enum Role {
     #[default]
     Unknown,
@@ -95,9 +95,10 @@ pub struct JoinstrInner<'a> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
+    role: Role,
     pool_secret_key: String, /* nostr::Keys*/
     relay: String,
-    electrum: Option<String>,
+    electrum: Option<(String, u16)>,
     pool: Pool,
     input: Option<Coin>,
     output: Option<Address<NetworkUnchecked>>,
@@ -827,6 +828,160 @@ impl Joinstr<'_> {
 
         Ok(())
     }
+
+    pub fn restart<S>(state: State, name: &str, signer: S) -> Result<Self, Error>
+    where
+        S: JoinstrSigner + Sync + Clone + Send + 'static,
+    {
+        let State {
+            role,
+            pool_secret_key,
+            relay,
+            electrum,
+            pool,
+            input,
+            output,
+            network,
+            peers,
+            outputs,
+            inputs,
+            final_tx,
+        } = state;
+        let secret_key = nostr::SecretKey::from_hex(pool_secret_key).map_err(|_| Error::PoolKey)?;
+        let keys = Keys::new(secret_key);
+        let mut j = Joinstr::new(keys, relay, name)?.network(network);
+        let mut inner = j.inner.lock().expect("poisoned");
+        inner.role = role;
+        inner.pool = Some(pool);
+        if let Some((url, port)) = electrum {
+            inner.electrum_client = Some(crate::electrum::Client::new(&url, port)?)
+        }
+        inner.input = input;
+        if let Some(addr) = output {
+            if addr.is_valid_for_network(network) {
+                inner.output = Some(addr.assume_checked().clone());
+            } else {
+                return Err(Error::WrongAddressNetwork);
+            }
+        }
+        inner.network = network;
+        inner.peers = peers;
+        let mut outs = vec![];
+        for o in outputs {
+            if !o.is_valid_for_network(network) {
+                return Err(Error::WrongAddressNetwork);
+            }
+            outs.push(o.assume_checked().clone());
+        }
+        inner.outputs = outs;
+        let mut inps = vec![];
+        for i in inputs {
+            inps.push(serde_json::from_value(i).map_err(|_| Error::InputParsing)?);
+        }
+        inner.inputs = inps;
+
+        // pool state is already finalized
+        if let Some(tx) = final_tx {
+            inner.final_tx = Some(tx);
+            drop(inner);
+            return Ok(j);
+        }
+
+        let expected_peers = inner
+            .pool
+            .as_ref()
+            .expect("always have a pool")
+            .payload
+            .as_ref()
+            .expect("have a payload")
+            .peers;
+
+        let mut recv_peers = vec![];
+        let mut recv_outputs = vec![];
+        let mut recv_inputs = vec![];
+
+        // NOTE: here it's tricky to restart if we have a non finalized coinjoin:
+        //  - we cannot trust the timestamp of messages
+        //  - an external actor can have posted a join request w/ a fake timestamp
+        //  - a malicious peer can have posted a message w/ a fake timestamp
+        //  - a malicious peer can have posted a fake message
+        //  - a message can have been deleted
+        //
+        // FIXME: it's then easy to be DOS by a malicious actor, we should have a way to sign
+        // with the pool key & post a backup state
+
+        // get all already received pool messages
+        while let Ok(Some(msg)) = inner.client.try_receive_pool_msg() {
+            match msg {
+                PoolMessage::Input(input) => {
+                    recv_inputs.push(input);
+                }
+                PoolMessage::Output(address) => {
+                    if address.is_valid_for_network(network) {
+                        recv_outputs.push(address.assume_checked());
+                    }
+                }
+                PoolMessage::Psbt(psbt) => {
+                    if let Ok(input) = psbt.try_into() {
+                        recv_inputs.push(input);
+                    }
+                }
+                PoolMessage::Join(Some(public_key)) => {
+                    recv_peers.push(public_key);
+                }
+                _ => {}
+            }
+        }
+
+        let total_peers = inner.peers.len() + recv_peers.len();
+        let total_outputs = inner.outputs.len() + recv_outputs.len();
+        let total_inputs = inner.inputs.len() + recv_inputs.len();
+
+        if total_peers > expected_peers {
+            return Err(Error::PoolCorrupted);
+        }
+        if total_outputs > total_peers {
+            return Err(Error::PoolCorrupted);
+        }
+        if total_inputs > total_outputs {
+            return Err(Error::PoolCorrupted);
+        }
+        if total_inputs > total_peers {
+            return Err(Error::PoolCorrupted);
+        }
+
+        inner.peers.append(&mut recv_peers);
+        inner.outputs.append(&mut recv_outputs);
+        inner.inputs.append(&mut recv_inputs);
+
+        let joined = inner.peers.len() >= expected_peers;
+        let output_registered = inner.outputs.len() >= expected_peers;
+        let inputs_registered = inner.inputs.len() >= expected_peers;
+
+        drop(inner);
+
+        if !joined || !output_registered {
+            j.register_outputs()?;
+        }
+
+        if !inputs_registered {
+            j.inner.lock().expect("poisoned").generate_unsigned_tx()?;
+
+            rand_delay();
+
+            let mut inner = j.inner.lock().expect("poisoned");
+            if inner.input.is_some() {
+                inner.register_input(&signer)?;
+            }
+            drop(inner);
+
+            j.register_inputs()?;
+
+            j.inner.lock().expect("poisoned").broadcast_tx()?;
+        }
+
+        Ok(j)
+    }
 }
 
 impl<'a> JoinstrInner<'a> {
@@ -1278,13 +1433,14 @@ impl<'a> JoinstrInner<'a> {
         } else {
             return None;
         };
-        let electrum = self.electrum_client.as_ref().map(|c| c.url());
+        let electrum = self.electrum_client.as_ref().map(|c| (c.url(), c.port()));
         let pool = if let Some(pool) = &self.pool {
             pool.clone()
         } else {
             return None;
         };
         Some(State {
+            role: self.role,
             pool_secret_key: keys.secret_key().to_secret_hex(),
             relay,
             electrum,

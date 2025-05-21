@@ -43,6 +43,9 @@ pub enum Error {
     AlreadyHaveOutput,
     WrongRole,
     WrongConfig,
+    PoolKey,
+    InputParsing,
+    PoolCorrupted,
 }
 
 impl From<crate::coinjoin::Error> for Error {

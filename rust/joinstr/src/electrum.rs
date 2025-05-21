@@ -646,6 +646,14 @@ impl Client {
     pub fn url(&self) -> String {
         self.url.clone()
     }
+
+    /// Returns the port of the electrum client.
+    ///
+    /// # Returns
+    /// A `u16` containing the port of the electrum server.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
 }
 
 impl BitcoinBackend for Client {
