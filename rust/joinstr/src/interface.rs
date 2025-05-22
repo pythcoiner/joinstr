@@ -140,7 +140,7 @@ pub fn initiate_coinjoin(config: PoolConfig, peer: PeerConfig) -> Result<Txid, E
     initiator.set_coin(coin)?;
     initiator.set_address(addr)?;
 
-    initiator.start_coinjoin_blocking(None, Some(signer.clone()))?;
+    initiator.start_coinjoin_blocking(None, Some(signer.clone()), || {})?;
 
     let txid = initiator
         .final_tx()
@@ -200,7 +200,7 @@ pub fn join_coinjoin(pool: Pool, peer: PeerConfig) -> Result<String /* Txid */, 
     let client = Client::new(&url, port)?;
     signer.set_client(client);
 
-    joinstr_peer.start_coinjoin_blocking(None, Some(signer.clone()))?;
+    joinstr_peer.start_coinjoin_blocking(None, Some(signer.clone()), || {})?;
 
     let txid = joinstr_peer
         .final_tx()

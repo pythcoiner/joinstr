@@ -139,7 +139,7 @@ fn simple_coinjoin() {
 
     let coordinator_handle = thread::spawn(move || {
         coordinator
-            .start_coinjoin_blocking(None, Option::<WpkhHotSigner>::None)
+            .start_coinjoin_blocking(None, Option::<WpkhHotSigner>::None, || {})
             .unwrap();
         coordinator.final_tx()
     });
@@ -226,11 +226,11 @@ fn simple_coinjoin() {
     let signer_a = signer.clone();
     let pool_a = pool.clone();
     let _peer_a = thread::spawn(move || {
-        let _ = peer_a.start_coinjoin_blocking(Some(pool_a), Some(signer_a));
+        let _ = peer_a.start_coinjoin_blocking(Some(pool_a), Some(signer_a), || {});
     });
 
     let _peer_b = thread::spawn(move || {
-        let _ = peer_b.start_coinjoin_blocking(Some(pool), Some(signer));
+        let _ = peer_b.start_coinjoin_blocking(Some(pool), Some(signer), || {});
     });
 
     let final_tx = coordinator_handle.join().unwrap().unwrap();

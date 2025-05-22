@@ -497,6 +497,9 @@ impl Joinstr<'_> {
     /// Start the round of output registration, will block until enough output
     ///   registered or if some error occur.
     ///
+    /// # Arguments
+    /// * `notif` - A callback function called every time the pool state is updated.
+    ///
     /// # Errors
     ///
     /// This function will return an error if:
@@ -506,7 +509,10 @@ impl Joinstr<'_> {
     ///   - the nostr client do not have private keys
     ///   - timeout elapsed
     ///   - peer count do not match
-    fn register_outputs(&mut self) -> Result<(), Error> {
+    fn register_outputs<N>(&mut self, notif: N) -> Result<(), Error>
+    where
+        N: Fn(),
+    {
         let inner = self.inner.lock().expect("poisoned");
         inner.pool_exists()?;
         let (expired, start_early) = inner.start_timeline()?;
@@ -541,6 +547,7 @@ impl Joinstr<'_> {
                             }
                             peers.insert(npub);
                             inner.peers.push(npub);
+                            notif();
                             log::debug!(
                                 "Coordinator({}).register_outputs(): receive Join({}) request. \n      peers: {}",
                                 inner.client.name,
@@ -583,7 +590,7 @@ impl Joinstr<'_> {
         let mut inner = self.inner.lock().expect("poisoned");
         if let Some(output) = inner.output.as_ref() {
             coinjoin.add_output(output.clone());
-            inner.register_output()?;
+            inner.register_output(&notif)?;
         }
         drop(inner);
 
@@ -613,6 +620,7 @@ impl Joinstr<'_> {
                         // TODO: we must error if outputs > peers
                         // TODO: check address network
                         inner.outputs.push(o.assume_checked());
+                        notif();
                     }
                     // FIXME: here it can be some cases where, because network timing, we can
                     // receive a signed input before the output registration round ended, we should
@@ -647,11 +655,15 @@ impl Joinstr<'_> {
             ));
         }
         self.inner.lock().expect("poisoined").coinjoin = Some(coinjoin);
+        notif();
         Ok(())
     }
 
     /// Start the round of input registration, will block until enough input
     ///   registered or if some error occur.
+    ///
+    /// # Arguments
+    /// * `notif` - A callback function called every time the pool state is updated.
     ///
     /// # Errors
     ///
@@ -662,7 +674,10 @@ impl Joinstr<'_> {
     ///   - timeout expired
     ///   - trying register an input error
     ///   - trying finalize coinjoin error
-    fn register_inputs(&mut self) -> Result<(), Error> {
+    fn register_inputs<N>(&mut self, notif: N) -> Result<(), Error>
+    where
+        N: Fn(),
+    {
         let inner = self.inner.lock().expect("poisoned");
         inner.pool_exists()?;
         inner.coinjoin_exists()?;
@@ -698,13 +713,13 @@ impl Joinstr<'_> {
                     PoolMessage::Psbt(psbt) => {
                         let input: InputDataSigned =
                             psbt.try_into().map_err(|_| Error::PsbtToInput)?;
-                        inner.try_register_input(input)?;
+                        inner.try_register_input(input, &notif)?;
                         if inner.try_finalize_coinjoin()? {
                             break;
                         }
                     }
                     PoolMessage::Input(input) => {
-                        inner.try_register_input(input)?;
+                        inner.try_register_input(input, &notif)?;
                         if inner.try_finalize_coinjoin()? {
                             break;
                         }
@@ -770,7 +785,7 @@ impl Joinstr<'_> {
         let mut cloned = self.clone();
         let signer = signer.clone();
         thread::spawn(move || {
-            if let Err(e) = cloned.start_coinjoin_blocking(pool, signer) {
+            if let Err(e) = cloned.start_coinjoin_blocking(pool, signer, || {}) {
                 let mut inner = cloned.inner.lock().expect("poisoned");
                 inner.error = Some(format!("{:?}", e));
                 inner.step = Step::Failed;
@@ -778,13 +793,53 @@ impl Joinstr<'_> {
         });
     }
 
-    pub fn start_coinjoin_blocking<S>(
+    /// Start a coinjoin process, followings steps will be processed:
+    ///   - if no `pool` arg is passed, a new pool will be initiated.
+    ///   - if a `pool` arg is passed, it will join the pool
+    ///   - run the outputs registration round
+    ///   - if a `signer` arg is passed, it will signed the input it owns.
+    ///   - run the inputs registration round
+    ///   - finalize the transaction
+    ///   - broadcast the transaction
+    ///
+    /// # Arguments
+    /// * `pool` - The pool we want join (optional)
+    /// * `signer` - The signer to sign our input with (optional)
+    /// * `notif` - A callback function called every time the pool state is updated.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if any step return an error.
+    pub fn start_coinjoin_with_notif<S, N>(
         &mut self,
         pool: Option<Pool>,
         signer: Option<S>,
+        notif: N,
+    ) where
+        S: JoinstrSigner + Sized + Sync + Clone + Send + 'static,
+        Self: Sized + Send + 'static,
+        N: Fn() + Send + 'static,
+    {
+        let mut cloned = self.clone();
+        let signer = signer.clone();
+        thread::spawn(move || {
+            if let Err(e) = cloned.start_coinjoin_blocking(pool, signer, notif) {
+                let mut inner = cloned.inner.lock().expect("poisoned");
+                inner.error = Some(format!("{:?}", e));
+                inner.step = Step::Failed;
+            }
+        });
+    }
+
+    pub fn start_coinjoin_blocking<S, N>(
+        &mut self,
+        pool: Option<Pool>,
+        signer: Option<S>,
+        notif: N,
     ) -> Result<(), Error>
     where
         S: JoinstrSigner + Sync + Clone + Send + 'static,
+        N: Fn(),
     {
         let mut inner = self.inner.lock().expect("poisoned");
 
@@ -802,36 +857,42 @@ impl Joinstr<'_> {
             inner.post()?;
             drop(inner);
         }
+        notif();
+
         // register peers & outputs
-        self.register_outputs()?;
+        self.register_outputs(&notif)?;
 
         self.inner
             .lock()
             .expect("poisoned")
             .generate_unsigned_tx()?;
 
+        notif();
+
         rand_delay();
 
         let mut inner = self.inner.lock().expect("poisoned");
         if inner.input.is_some() {
             if let Some(s) = signer {
-                inner.register_input(&s)?;
+                inner.register_input(&s, &notif)?;
             } else {
                 return Err(Error::SignerMissing);
             }
         }
         drop(inner);
 
-        self.register_inputs()?;
+        self.register_inputs(&notif)?;
 
         self.inner.lock().expect("poisoned").broadcast_tx()?;
+        notif();
 
         Ok(())
     }
 
-    pub fn restart<S>(state: State, name: &str, signer: S) -> Result<Self, Error>
+    pub fn restart<S, N>(state: State, name: &str, signer: S, notif: N) -> Result<Self, Error>
     where
         S: JoinstrSigner + Sized + Sync + Clone + Send + 'static,
+        N: Fn() + Send + 'static,
         Self: Sized + Send + 'static,
     {
         let State {
@@ -957,13 +1018,15 @@ impl Joinstr<'_> {
 
         drop(inner);
 
-        fn restart_blocking<S>(
+        fn restart_blocking<S, N>(
             mut j: Joinstr,
             expected_peers: usize,
             signer: S,
+            notif: N,
         ) -> Result<(), Error>
         where
             S: JoinstrSigner + Sync + Clone + Send + 'static,
+            N: Fn(),
         {
             let inner = j.inner.lock().expect("poisoned");
             let joined = inner.peers.len() >= expected_peers;
@@ -973,21 +1036,22 @@ impl Joinstr<'_> {
             drop(inner);
 
             if !joined || !output_registered {
-                j.register_outputs()?;
+                j.register_outputs(&notif)?;
             }
 
             if !inputs_registered {
                 j.inner.lock().expect("poisoned").generate_unsigned_tx()?;
+                notif();
 
                 rand_delay();
 
                 let mut inner = j.inner.lock().expect("poisoned");
                 if inner.input.is_some() {
-                    inner.register_input(&signer)?;
+                    inner.register_input(&signer, &notif)?;
                 }
                 drop(inner);
 
-                j.register_inputs()?;
+                j.register_inputs(&notif)?;
 
                 j.inner.lock().expect("poisoned").broadcast_tx()?;
             }
@@ -998,7 +1062,7 @@ impl Joinstr<'_> {
         let j3 = j.clone();
 
         std::thread::spawn(move || {
-            if let Err(e) = restart_blocking(j2, expected_peers, signer) {
+            if let Err(e) = restart_blocking(j2, expected_peers, signer, &notif) {
                 let mut inner = j3.inner.lock().expect("poisoned");
                 inner.error = Some(format!("{:?}", e));
                 inner.step = Step::Failed;
@@ -1215,13 +1279,19 @@ impl<'a> JoinstrInner<'a> {
 
     /// Register [`Joinstr::output`] address to the pool
     ///
+    /// # Arguments
+    /// * `notif` - A callback function called every time the pool state is updated.
+    ///
     /// # Errors
     ///
     /// This function will return an error if:
     ///   - the pool not exists
     ///   - [`Joinstr::output`] is missing
     ///   - fails to send the nostr message
-    fn register_output(&mut self) -> Result<(), Error> {
+    fn register_output<N>(&mut self, notif: N) -> Result<(), Error>
+    where
+        N: Fn(),
+    {
         if let Some(address) = &self.output {
             // let msg = PoolMessage::Outputs(Outputs::single(address.as_unchecked().clone()));
             let msg = PoolMessage::Output(address.as_unchecked().clone());
@@ -1229,6 +1299,7 @@ impl<'a> JoinstrInner<'a> {
             let npub = self.pool_as_ref()?.public_key;
             self.client.send_pool_message(&npub, msg)?;
             self.outputs.push(address.clone());
+            notif();
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -1273,6 +1344,9 @@ impl<'a> JoinstrInner<'a> {
 
     /// Try to sign / register / send our input.
     ///
+    /// # Arguments
+    /// * `notif` - A callback function called every time the pool state is updated.
+    ///
     /// # Errors
     ///
     /// This function will return an error if:
@@ -1282,9 +1356,10 @@ impl<'a> JoinstrInner<'a> {
     ///   - the inner pool dont exists
     ///   - [`Joinstr::input`] is None
     ///   - sending the input fails
-    fn register_input<S>(&mut self, signer: &S) -> Result<(), Error>
+    fn register_input<S, N>(&mut self, signer: &S, notif: N) -> Result<(), Error>
     where
         S: JoinstrSigner,
+        N: Fn(),
     {
         let unsigned = match self.coinjoin_as_ref()?.unsigned_tx() {
             Some(u) => u,
@@ -1299,6 +1374,7 @@ impl<'a> JoinstrInner<'a> {
             let npub = self.pool_as_ref()?.public_key;
             self.client.send_pool_message(&npub, msg)?;
             self.inputs.push(signed_input);
+            notif();
             // TODO: handle re-send if fails
             Ok(())
         } else {
@@ -1306,12 +1382,18 @@ impl<'a> JoinstrInner<'a> {
         }
     }
 
-    // Try to register a received signed input to the inner [`CoinJoin`]
+    /// Try to register a received signed input to the inner [`CoinJoin`]
+    ///
+    /// # Arguments
+    /// * `notif` - A callback function called every time the pool state is updated.
     ///
     /// # Errors
     ///
     /// This function will return an error if [`Joinstr::coinjoin`] is None
-    fn try_register_input(&mut self, input: InputDataSigned) -> Result<(), Error> {
+    fn try_register_input<N>(&mut self, input: InputDataSigned, notif: N) -> Result<(), Error>
+    where
+        N: Fn(),
+    {
         self.coinjoin_exists()?;
         log::debug!(
             "Coordinator({}).register_input(): receive Inputs({:?}) request.",
@@ -1328,6 +1410,7 @@ impl<'a> JoinstrInner<'a> {
                 );
             } else {
                 self.inputs.push(input);
+                notif();
             }
         }
         Ok(())
