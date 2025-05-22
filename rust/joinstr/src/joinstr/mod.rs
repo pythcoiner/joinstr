@@ -831,7 +831,8 @@ impl Joinstr<'_> {
 
     pub fn restart<S>(state: State, name: &str, signer: S) -> Result<Self, Error>
     where
-        S: JoinstrSigner + Sync + Clone + Send + 'static,
+        S: JoinstrSigner + Sized + Sync + Clone + Send + 'static,
+        Self: Sized + Send + 'static,
     {
         let State {
             role,
@@ -849,7 +850,7 @@ impl Joinstr<'_> {
         } = state;
         let secret_key = nostr::SecretKey::from_hex(pool_secret_key).map_err(|_| Error::PoolKey)?;
         let keys = Keys::new(secret_key);
-        let mut j = Joinstr::new(keys, relay, name)?.network(network);
+        let j = Joinstr::new(keys, relay, name)?.network(network);
         let mut inner = j.inner.lock().expect("poisoned");
         inner.role = role;
         inner.pool = Some(pool);
@@ -954,31 +955,55 @@ impl Joinstr<'_> {
         inner.outputs.append(&mut recv_outputs);
         inner.inputs.append(&mut recv_inputs);
 
-        let joined = inner.peers.len() >= expected_peers;
-        let output_registered = inner.outputs.len() >= expected_peers;
-        let inputs_registered = inner.inputs.len() >= expected_peers;
-
         drop(inner);
 
-        if !joined || !output_registered {
-            j.register_outputs()?;
-        }
+        fn restart_blocking<S>(
+            mut j: Joinstr,
+            expected_peers: usize,
+            signer: S,
+        ) -> Result<(), Error>
+        where
+            S: JoinstrSigner + Sync + Clone + Send + 'static,
+        {
+            let inner = j.inner.lock().expect("poisoned");
+            let joined = inner.peers.len() >= expected_peers;
+            let output_registered = inner.outputs.len() >= expected_peers;
+            let inputs_registered = inner.inputs.len() >= expected_peers;
 
-        if !inputs_registered {
-            j.inner.lock().expect("poisoned").generate_unsigned_tx()?;
-
-            rand_delay();
-
-            let mut inner = j.inner.lock().expect("poisoned");
-            if inner.input.is_some() {
-                inner.register_input(&signer)?;
-            }
             drop(inner);
 
-            j.register_inputs()?;
+            if !joined || !output_registered {
+                j.register_outputs()?;
+            }
 
-            j.inner.lock().expect("poisoned").broadcast_tx()?;
+            if !inputs_registered {
+                j.inner.lock().expect("poisoned").generate_unsigned_tx()?;
+
+                rand_delay();
+
+                let mut inner = j.inner.lock().expect("poisoned");
+                if inner.input.is_some() {
+                    inner.register_input(&signer)?;
+                }
+                drop(inner);
+
+                j.register_inputs()?;
+
+                j.inner.lock().expect("poisoned").broadcast_tx()?;
+            }
+            Ok(())
         }
+
+        let j2 = j.clone();
+        let j3 = j.clone();
+
+        std::thread::spawn(move || {
+            if let Err(e) = restart_blocking(j2, expected_peers, signer) {
+                let mut inner = j3.inner.lock().expect("poisoned");
+                inner.error = Some(format!("{:?}", e));
+                inner.step = Step::Failed;
+            }
+        });
 
         Ok(j)
     }
