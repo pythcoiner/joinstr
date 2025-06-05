@@ -95,19 +95,19 @@ pub struct JoinstrInner<'a> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
-    role: Role,
-    pool_secret_key: String, /* nostr::Keys*/
-    relay: String,
-    electrum: Option<(String, u16)>,
-    pool: Pool,
-    input: Option<Coin>,
-    output: Option<Address<NetworkUnchecked>>,
-    network: bitcoin::Network,
-    final_tx: Option<bitcoin::Transaction>,
+    pub role: Role,
+    pub pool_secret_key: String, /* nostr::Keys*/
+    pub relay: String,
+    pub electrum: Option<(String, u16)>,
+    pub pool: Pool,
+    pub input: Option<Coin>,
+    pub output: Option<Address<NetworkUnchecked>>,
+    pub network: bitcoin::Network,
+    pub final_tx: Option<bitcoin::Transaction>,
     // requests history
-    peers: Vec<nostr::PublicKey>,
-    outputs: Vec<bitcoin::Address<NetworkUnchecked>>,
-    inputs: Vec<serde_json::Value /* InputDataSigned*/>,
+    pub peers: Vec<nostr::PublicKey>,
+    pub outputs: Vec<bitcoin::Address<NetworkUnchecked>>,
+    pub inputs: Vec<serde_json::Value /* InputDataSigned*/>,
 }
 
 impl Default for JoinstrInner<'_> {
