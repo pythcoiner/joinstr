@@ -96,6 +96,7 @@ pub struct JoinstrInner<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
     pub role: Role,
+    pub step: Step,
     pub pool_secret_key: String, /* nostr::Keys*/
     pub relay: String,
     pub electrum: Option<(String, u16)>,
@@ -897,6 +898,7 @@ impl Joinstr<'_> {
     {
         let State {
             role,
+            step: _,
             pool_secret_key,
             relay,
             electrum,
@@ -1549,6 +1551,7 @@ impl<'a> JoinstrInner<'a> {
         };
         Some(State {
             role: self.role,
+            step: self.step,
             pool_secret_key: keys.secret_key().to_secret_hex(),
             relay,
             electrum,
