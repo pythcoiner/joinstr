@@ -44,7 +44,7 @@ pub enum Role {
     Peer,
 }
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Step {
     #[default]
     Unconfigured,
