@@ -842,32 +842,43 @@ impl Joinstr<'_> {
         S: JoinstrSigner + Sync + Clone + Send + 'static,
         N: Fn(),
     {
+        let name = self.inner.lock().expect("poisoned").client.name.clone();
+
+        log::debug!("Joinstr::Start_coinjoin_blocking({name})");
         let mut inner = self.inner.lock().expect("poisoned");
 
         if matches!(inner.role, Role::Unknown) {
+            log::error!("Joinstr::start_coinjoin_blocking({name}): wrong role!");
             return Err(Error::WrongRole);
         }
 
         if let Some(pool) = pool {
+            log::debug!("Joinstr::start_coinjoin_blocking({name}) try to join pool...");
             inner.pool_not_exists()?;
             inner.pool = Some(pool);
             drop(inner);
             self.join_pool()?;
+            log::debug!("Joinstr::start_coinjoin_blocking({name}) pool joined");
         } else {
             // broadcast the pool event
+            log::debug!("Joinstr::start_coinjoin_blocking({name}) try to broadcast pool...");
             inner.post()?;
+            log::debug!("Joinstr::start_coinjoin_blocking({name}) pool broadcast!");
             drop(inner);
         }
         notif();
 
+        log::debug!("Joinstr::start_coinjoin_blocking({name}) start register outputs..");
         // register peers & outputs
         self.register_outputs(&notif)?;
+        log::debug!("Joinstr::start_coinjoin_blocking({name}) outputs registered!");
 
         self.inner
             .lock()
             .expect("poisoned")
             .generate_unsigned_tx()?;
 
+        log::debug!("Joinstr::start_coinjoin_blocking({name}) unsigned tx generated!");
         notif();
 
         rand_delay();
@@ -875,16 +886,26 @@ impl Joinstr<'_> {
         let mut inner = self.inner.lock().expect("poisoned");
         if inner.input.is_some() {
             if let Some(s) = signer {
+                log::debug!("Joinstr::start_coinjoin_blocking({name}) try register input....");
                 inner.register_input(&s, &notif)?;
+                log::debug!("Joinstr::start_coinjoin_blocking({name}) input registered!");
             } else {
+                log::debug!("Joinstr::start_coinjoin_blocking({name}) no input to register!");
                 return Err(Error::SignerMissing);
             }
         }
         drop(inner);
 
+        log::debug!(
+            "Joinstr::start_coinjoin_blocking({name}) start registering external inputs..."
+        );
         self.register_inputs(&notif)?;
 
+        log::debug!("Joinstr::start_coinjoin_blocking({name}) inputs registerd!");
+
+        log::debug!("Joinstr::start_coinjoin_blocking({name}) try broadcast tx...");
         self.inner.lock().expect("poisoned").broadcast_tx()?;
+        log::debug!("Joinstr::start_coinjoin_blocking({name}) tx broadcast!");
         notif();
 
         Ok(())
