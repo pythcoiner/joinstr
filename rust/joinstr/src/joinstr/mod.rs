@@ -801,6 +801,7 @@ impl Joinstr<'_> {
         let signer = signer.clone();
         thread::spawn(move || {
             if let Err(e) = cloned.start_coinjoin_blocking(pool, signer, || {}) {
+                log::error!("Joinstr::start_coinjoin() start_coinjoin_blocking() failed: {e:?}");
                 let mut inner = cloned.inner.lock().expect("poisoned");
                 inner.error = Some(format!("{:?}", e));
                 inner.step = Step::Failed;
