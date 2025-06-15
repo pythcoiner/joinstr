@@ -72,10 +72,24 @@ pub fn descriptor(
     xpub: &Xpub,
     fg: &Fingerprint,
     multipath: u32,
+    network: Network,
 ) -> Descriptor<DescriptorPublicKey> {
-    let descr_str = format!("wpkh([{}/84'/0'/0']{}/{}/*)", fg, xpub, multipath);
+    let descr_str = format!(
+        "wpkh([{}{}]{}/{}/*)",
+        fg,
+        deriv_path(network),
+        xpub,
+        multipath
+    );
 
     Descriptor::<DescriptorPublicKey>::from_str(&descr_str).expect("descriptor")
+}
+
+pub fn deriv_path(network: Network) -> &'static str {
+    match network {
+        Network::Bitcoin => "/84'/0'/0'",
+        _ => "/84'/1'/0'",
+    }
 }
 
 impl WpkhHotSigner {
@@ -88,10 +102,11 @@ impl WpkhHotSigner {
         let secp = secp256k1::Secp256k1::new();
         let fingerprint = xpriv.fingerprint(&secp);
 
+        let deriv_path_str = format!("m{}", deriv_path(network));
         let secret_key = DescriptorMultiXKey {
             origin: Some((
                 fingerprint,
-                DerivationPath::from_str("m/84'/0'/0'").expect("hardcoded"),
+                DerivationPath::from_str(&deriv_path_str).expect("hardcoded"),
             )),
             xkey: xpriv,
             derivation_paths: DerivPaths::new(vec![
@@ -174,7 +189,7 @@ impl WpkhHotSigner {
         if let Some(index) = coin_path.index {
             let fingerprint = self.master_xpriv.fingerprint(self.secp());
             let xpub = Xpub::from_priv(self.secp(), &self.master_xpriv);
-            let descriptor = descriptor(&xpub, &fingerprint, coin_path.depth);
+            let descriptor = descriptor(&xpub, &fingerprint, coin_path.depth, self.network);
             let definite = descriptor.at_derivation_index(index).expect("wildcard");
             Ok(definite.address(self.network).expect("wpkh"))
         } else {
