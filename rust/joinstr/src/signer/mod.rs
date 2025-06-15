@@ -281,6 +281,7 @@ impl WpkhHotSigner {
             .map_err(|_| Error::CoinPath)?;
 
         if input_data.txout.script_pubkey != spk {
+            log::error!("WpkhHotSigner::sign(): derived and provided spk do no match!");
             return Err(Error::CoinPath);
         }
 
