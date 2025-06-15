@@ -103,12 +103,11 @@ impl WpkhHotSigner {
         let fingerprint = xpriv.fingerprint(&secp);
 
         let deriv_path_str = format!("m{}", deriv_path(network));
+        let d_path = DerivationPath::from_str(&deriv_path_str).expect("hardcoded");
+        let xprv = xpriv.derive_priv(&secp, &d_path).expect("cannot fail");
         let secret_key = DescriptorMultiXKey {
-            origin: Some((
-                fingerprint,
-                DerivationPath::from_str(&deriv_path_str).expect("hardcoded"),
-            )),
-            xkey: xpriv,
+            origin: Some((fingerprint, d_path.clone())),
+            xkey: xprv,
             derivation_paths: DerivPaths::new(vec![
                 vec![ChildNumber::from_normal_idx(0).expect("hardcoded")].into(),
                 vec![ChildNumber::from_normal_idx(1).expect("hardcoded")].into(),
@@ -118,8 +117,8 @@ impl WpkhHotSigner {
         };
 
         WpkhHotSigner {
-            key: xpriv.to_priv(),
-            master_xpriv: xpriv,
+            key: xprv.to_priv(),
+            master_xpriv: xprv,
             fingerprint,
             secp,
             mnemonic: None,
