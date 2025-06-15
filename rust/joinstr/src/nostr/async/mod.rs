@@ -211,7 +211,7 @@ impl NostrClient {
     ///   - sending the DM fails
     pub async fn send_pool_message(&self, npub: &PublicKey, msg: PoolMessage) -> Result<(), Error> {
         let clear_content = msg.to_string()?;
-        log::info!("NostrClient.send_pool_message(): {:#?}", clear_content);
+        log::debug!("NostrClient.send_pool_message(): {:#?}", clear_content);
         self.send_dm(npub, clear_content).await
     }
 

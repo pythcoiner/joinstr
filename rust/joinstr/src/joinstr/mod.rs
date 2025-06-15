@@ -462,7 +462,7 @@ impl Joinstr<'_> {
             if let Some(PoolMessage::Credentials(Credentials { id, key })) =
                 inner.client.try_receive_pool_msg()?
             {
-                log::warn!(
+                log::debug!(
                     "Coordinator({}).connect_to_pool(): receive credentials.",
                     inner.client.name
                 );
