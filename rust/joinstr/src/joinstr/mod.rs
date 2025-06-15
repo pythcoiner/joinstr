@@ -1398,20 +1398,26 @@ impl<'a> JoinstrInner<'a> {
         S: JoinstrSigner,
         N: Fn(),
     {
+        let name = self.client.name.clone();
+        log::debug!("Joinstr::register_input({name})");
         let unsigned = match self.coinjoin_as_ref()?.unsigned_tx() {
             Some(u) => u,
             None => return Err(Error::UnsignedTxNotExists),
         };
         if let Some(input) = self.input.take() {
+            log::debug!("Joinstr::register_input({name}) signing input ...");
             let signed_input = signer
                 .sign_input(&unsigned, input)
                 .map_err(Error::SigningFail)?;
+            log::debug!("Joinstr::register_input({name}) input signed!");
             let msg = PoolMessage::Input(signed_input.clone());
             self.pool_exists()?;
             let npub = self.pool_as_ref()?.public_key;
+            log::debug!("Joinstr::register_input({name}) sending signed input to pool..");
             self.client.send_pool_message(&npub, msg)?;
             self.inputs.push(signed_input);
             notif();
+            log::debug!("Joinstr::register_input({name}) input sent & locally registered!");
             // TODO: handle re-send if fails
             Ok(())
         } else {
