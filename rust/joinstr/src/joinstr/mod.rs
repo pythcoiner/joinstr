@@ -36,7 +36,7 @@ pub struct Joinstr<'a> {
     pub inner: Arc<Mutex<JoinstrInner<'a>>>,
 }
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Role {
     #[default]
     Unknown,
@@ -523,6 +523,9 @@ impl Joinstr<'_> {
         } else {
             return Err(Error::NotYetImplemented);
         };
+        let pool_pubkey = inner.pool_as_ref()?.public_key;
+        let role = inner.role;
+        let relay = inner.client.get_relay().ok_or(Error::RelaysMissing)?;
         drop(inner);
 
         let mut peers = HashSet::<PublicKey>::new();
@@ -530,8 +533,19 @@ impl Joinstr<'_> {
             .min_peer(payload.peers)
             .fee(fee as usize);
 
-        let mut backoff = Backoff::new_us(WAIT);
+        if role == Role::Initiator {
+            // send a dummy join request
+            let mut dummy_client = NostrClient::new("dummy")
+                .keys(Keys::generate())?
+                .relay(relay)?;
+            dummy_client.connect_nostr()?;
 
+            let dummy_response_key = Keys::generate().public_key();
+            dummy_client
+                .send_pool_message(&pool_pubkey, PoolMessage::Join(Some(dummy_response_key)))?;
+        }
+
+        let mut backoff = Backoff::new_us(WAIT);
         // register peers
         while (now() < expired) && !(start_early && peers.len() >= payload.peers) {
             let mut inner = self.inner.lock().expect("poisoned");
