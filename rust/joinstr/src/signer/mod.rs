@@ -186,7 +186,7 @@ impl WpkhHotSigner {
     /// This function will return an error if the [`CoinPath::index`] is None
     pub fn address_at(&self, coin_path: &CoinPath) -> Result<Address, Error> {
         if let Some(index) = coin_path.index {
-            let fingerprint = self.master_xpriv.fingerprint(self.secp());
+            let fingerprint = self.fingerprint();
             let xpub = Xpub::from_priv(self.secp(), &self.master_xpriv);
             let descriptor = descriptor(&xpub, &fingerprint, coin_path.depth, self.network);
             let definite = descriptor.at_derivation_index(index).expect("wildcard");
